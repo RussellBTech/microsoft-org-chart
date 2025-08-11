@@ -1,0 +1,577 @@
+/**
+ * Authentication utilities and helper functions
+ */
+
+import { AuthStatus } from './AuthProvider';
+
+/**
+ * Microsoft Graph API base URL
+ */
+export const GRAPH_API_BASE_URL = 'https://graph.microsoft.com/v1.0';
+
+/**
+ * Common Microsoft Graph API endpoints
+ */
+export const GRAPH_ENDPOINTS = {
+  ME: '/me',
+  USERS: '/users',
+  ORGANIZATION: '/organization',
+  DIRECTORY_OBJECTS: '/directoryObjects',
+} as const;
+
+/**
+ * Make authenticated request to Microsoft Graph API
+ */
+export async function makeGraphRequest<T = any>(
+  endpoint: string,
+  accessToken: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const url = endpoint.startsWith('http') ? endpoint : `${GRAPH_API_BASE_URL}${endpoint}`;
+  
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    let errorMessage: string;
+    
+    try {
+      const errorJson = JSON.parse(errorText);
+      errorMessage = errorJson.error?.message || errorJson.message || `HTTP ${response.status}: ${response.statusText}`;
+    } catch {
+      errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+    }
+    
+    throw new Error(`Microsoft Graph API error: ${errorMessage}`);
+  }
+
+  const contentType = response.headers.get('content-type');
+  if (contentType && contentType.includes('application/json')) {
+    return await response.json();
+  }
+  
+  return await response.text() as T;
+}
+
+/**
+ * Fetch all users from Microsoft Graph with pagination
+ */
+export async function fetchAllUsers(accessToken: string) {
+  let users: any[] = [];
+  // Filter for only enabled accounts (current employees)
+  let nextUrl: string | null = `${GRAPH_ENDPOINTS.USERS}?$filter=accountEnabled eq true&$select=id,displayName,jobTitle,department,mail,userPrincipalName,manager,employeeId,accountEnabled&$expand=manager($select=id,displayName)`;
+  
+  while (nextUrl) {
+    const response = await makeGraphRequest(nextUrl, accessToken);
+    
+    if (response.value) {
+      // Double-check accountEnabled in case the filter didn't work
+      const activeUsers = response.value.filter((user: any) => user.accountEnabled !== false);
+      users = users.concat(activeUsers);
+    }
+    
+    nextUrl = response['@odata.nextLink'] || null;
+    
+    // Safety check to prevent infinite loops
+    if (users.length > 10000) {
+      console.warn('Fetched over 10,000 users, stopping pagination to prevent performance issues');
+      break;
+    }
+  }
+  
+  console.log(`Fetched ${users.length} active users`);
+  return users;
+}
+
+/**
+ * Fetch current user with their organizational context
+ */
+export async function fetchMyOrgContext(accessToken: string) {
+  // First get current user basic info
+  const meQuery = `${GRAPH_ENDPOINTS.ME}?$select=id,displayName,jobTitle,department,mail,userPrincipalName,accountEnabled`;
+  const currentUser = await makeGraphRequest(meQuery, accessToken);
+  
+  // Get manager separately
+  let manager = null;
+  try {
+    const managerQuery = `${GRAPH_ENDPOINTS.ME}/manager?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+    manager = await makeGraphRequest(managerQuery, accessToken);
+    // Check if manager is active
+    if (manager && manager.accountEnabled === false) {
+      console.log('Manager account is disabled, skipping');
+      manager = null;
+    }
+  } catch (error) {
+    console.log('User has no manager (might be CEO):', error);
+  }
+  
+  // Get direct reports (only active ones)
+  let directReports: any[] = [];
+  try {
+    const reportsQuery = `${GRAPH_ENDPOINTS.ME}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+    const reportsResponse = await makeGraphRequest(reportsQuery, accessToken);
+    // Filter for only active accounts
+    directReports = (reportsResponse.value || []).filter((user: any) => user.accountEnabled !== false);
+  } catch (error) {
+    console.log('Could not fetch direct reports:', error);
+  }
+  
+  // Get manager's direct reports (user's peers) if manager exists
+  let peers: any[] = [];
+  if (manager?.id) {
+    try {
+      const peersQuery = `/users/${manager.id}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+      const peersResponse = await makeGraphRequest(peersQuery, accessToken);
+      // Filter for only active peers
+      peers = (peersResponse.value || []).filter((user: any) => user.accountEnabled !== false);
+    } catch (error) {
+      console.log('Could not fetch peers:', error);
+    }
+  }
+  
+  // Get manager's manager if exists
+  let grandManager = null;
+  if (manager?.id) {
+    try {
+      const grandManagerQuery = `/users/${manager.id}/manager?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+      grandManager = await makeGraphRequest(grandManagerQuery, accessToken);
+      // Check if grand manager is active
+      if (grandManager && grandManager.accountEnabled === false) {
+        console.log('Grand manager account is disabled, skipping');
+        grandManager = null;
+      }
+    } catch (error) {
+      console.log('Could not fetch grand manager:', error);
+    }
+  }
+  
+  // Get direct reports' direct reports (2 levels down) - fetch individually
+  const expandedReports = [];
+  for (const report of directReports) {
+    const reportWithSubs = { ...report, directReports: [] };
+    try {
+      const subReportsQuery = `/users/${report.id}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+      const subReportsResponse = await makeGraphRequest(subReportsQuery, accessToken);
+      // Filter for only active sub-reports
+      reportWithSubs.directReports = (subReportsResponse.value || []).filter((user: any) => user.accountEnabled !== false);
+    } catch (error) {
+      console.log(`Could not fetch sub-reports for ${report.id}:`, error);
+    }
+    expandedReports.push(reportWithSubs);
+  }
+  
+  return {
+    currentUser: { ...currentUser, manager, directReports },
+    manager,
+    grandManager,
+    peers,
+    directReports: expandedReports
+  };
+}
+
+/**
+ * Fetch users by department
+ */
+export async function fetchDepartmentUsers(accessToken: string, department: string, maxUsers: number = 500) {
+  // Note: Can't use $expand with $filter on Graph API, so we'll get manager info separately
+  const query = `${GRAPH_ENDPOINTS.USERS}?$filter=accountEnabled eq true and department eq '${encodeURIComponent(department)}'&$select=id,displayName,jobTitle,department,mail,userPrincipalName,accountEnabled&$top=${maxUsers}`;
+  
+  const response = await makeGraphRequest(query, accessToken);
+  // Double-check accountEnabled
+  const activeUsers = (response.value || []).filter((user: any) => user.accountEnabled !== false);
+  
+  // For each user, fetch their manager separately
+  const usersWithManagers = await Promise.all(activeUsers.map(async (user: any) => {
+    try {
+      const managerQuery = `/users/${user.id}/manager?$select=id,displayName`;
+      const manager = await makeGraphRequest(managerQuery, accessToken);
+      return { ...user, manager };
+    } catch (error) {
+      // User has no manager
+      return user;
+    }
+  }));
+  
+  console.log(`Found ${usersWithManagers.length} active users in ${department}`);
+  return usersWithManagers;
+}
+
+/**
+ * Search users by name or title
+ */
+export async function searchUsers(accessToken: string, searchQuery: string, maxResults: number = 20) {
+  // Graph API search with account enabled filter
+  // Note: $search and $filter together require ConsistencyLevel header
+  const query = `${GRAPH_ENDPOINTS.USERS}?$search="displayName:${searchQuery}" OR "jobTitle:${searchQuery}"&$filter=accountEnabled eq true&$select=id,displayName,jobTitle,department,mail,accountEnabled&$top=${maxResults}&$count=true`;
+  
+  const response = await makeGraphRequest(query, accessToken, {
+    headers: {
+      'ConsistencyLevel': 'eventual' // Required for $search with $filter
+    }
+  });
+  
+  // Double-check accountEnabled
+  const activeUsers = (response.value || []).filter((user: any) => user.accountEnabled !== false);
+  return activeUsers;
+}
+
+/**
+ * Fetch a specific user's organizational context
+ */
+export async function fetchUserOrgContext(accessToken: string, userId: string) {
+  // Get user basic info
+  const userQuery = `/users/${userId}?$select=id,displayName,jobTitle,department,mail,userPrincipalName,accountEnabled`;
+  const user = await makeGraphRequest(userQuery, accessToken);
+  
+  // Check if the user is active
+  if (user.accountEnabled === false) {
+    console.warn(`User ${userId} is not active/enabled`);
+  }
+  
+  // Get manager separately
+  let manager = null;
+  try {
+    const managerQuery = `/users/${userId}/manager?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+    manager = await makeGraphRequest(managerQuery, accessToken);
+    // Check if manager is active
+    if (manager && manager.accountEnabled === false) {
+      console.log('Manager account is disabled');
+      // Still include but marked as inactive
+    }
+  } catch (error) {
+    console.log('User has no manager:', error);
+  }
+  
+  // Get direct reports (filter for active ones)
+  let directReports: any[] = [];
+  try {
+    const reportsQuery = `/users/${userId}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+    const reportsResponse = await makeGraphRequest(reportsQuery, accessToken);
+    // Filter for only active accounts
+    directReports = (reportsResponse.value || []).filter((user: any) => user.accountEnabled !== false);
+  } catch (error) {
+    console.log('Could not fetch direct reports:', error);
+  }
+  
+  // Get manager's direct reports (user's peers) if manager exists
+  let peers: any[] = [];
+  if (manager?.id) {
+    try {
+      const peersQuery = `/users/${manager.id}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+      const peersResponse = await makeGraphRequest(peersQuery, accessToken);
+      // Filter for only active peers
+      peers = (peersResponse.value || []).filter((user: any) => user.accountEnabled !== false);
+    } catch (error) {
+      console.log('Could not fetch peers:', error);
+    }
+  }
+  
+  // Get manager's manager if exists
+  let grandManager = null;
+  if (manager?.id) {
+    try {
+      const grandManagerQuery = `/users/${manager.id}/manager?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+      grandManager = await makeGraphRequest(grandManagerQuery, accessToken);
+      // Check if grand manager is active
+      if (grandManager && grandManager.accountEnabled === false) {
+        console.log('Grand manager account is disabled');
+        // Still include but marked as inactive
+      }
+    } catch (error) {
+      console.log('Could not fetch grand manager:', error);
+    }
+  }
+  
+  return {
+    user: { ...user, manager, directReports },
+    manager,
+    grandManager,
+    peers,
+    directReports
+  };
+}
+
+/**
+ * Get all unique departments from users
+ */
+export async function fetchDepartments(accessToken: string): Promise<string[]> {
+  // Note: Graph API doesn't have a direct way to get unique departments
+  // We'll fetch a sample of active users and extract departments
+  const query = `${GRAPH_ENDPOINTS.USERS}?$filter=accountEnabled eq true&$select=department,accountEnabled&$top=999`;
+  const response = await makeGraphRequest(query, accessToken);
+  
+  const departments = new Set<string>();
+  (response.value || []).forEach((user: any) => {
+    // Only include departments from active users
+    if (user.department && user.accountEnabled !== false) {
+      departments.add(user.department);
+    }
+  });
+  
+  const deptList = Array.from(departments).sort();
+  console.log(`Found ${deptList.length} departments with active users`);
+  return deptList;
+}
+
+/**
+ * Fetch organization information
+ */
+export async function fetchOrganization(accessToken: string) {
+  return await makeGraphRequest(GRAPH_ENDPOINTS.ORGANIZATION, accessToken);
+}
+
+/**
+ * Fetch current user's profile
+ */
+export async function fetchCurrentUser(accessToken: string) {
+  return await makeGraphRequest(GRAPH_ENDPOINTS.ME, accessToken);
+}
+
+/**
+ * Transform Microsoft Graph user to our Employee format
+ * Handles manager relationship consistently across all data sources
+ */
+export function transformGraphUserToEmployee(graphUser: any, managerOverride?: string | null): any {
+  return {
+    id: graphUser.id,
+    name: graphUser.displayName || 'Unknown User',
+    title: graphUser.jobTitle || 'No Title',
+    department: graphUser.department || 'Unknown Department',
+    email: graphUser.mail || graphUser.userPrincipalName || '',
+    phone: graphUser.businessPhones?.[0] || undefined,
+    location: graphUser.officeLocation || undefined,
+    avatar: undefined, // Microsoft Graph photos require separate API call
+    managerId: managerOverride !== undefined ? managerOverride : (graphUser.manager?.id || null),
+  };
+}
+
+/**
+ * Build organizational context employees with correct manager relationships
+ */
+export function buildOrgContextEmployees(
+  currentUser: any,
+  manager: any | null,
+  grandManager: any | null,
+  peers: any[],
+  directReports: any[]
+): any[] {
+  const contextEmployees: any[] = [];
+  
+  // Add current user with correct manager relationship
+  const currentUserEmployee = transformGraphUserToEmployee(
+    currentUser,
+    manager?.id || null
+  );
+  contextEmployees.push(currentUserEmployee);
+  
+  // Add manager with their manager (grand manager)
+  if (manager) {
+    const managerEmployee = transformGraphUserToEmployee(
+      manager,
+      grandManager?.id || null
+    );
+    contextEmployees.push(managerEmployee);
+  }
+  
+  // Add grand manager (no manager in this limited context)
+  if (grandManager) {
+    const grandManagerEmployee = transformGraphUserToEmployee(grandManager, null);
+    contextEmployees.push(grandManagerEmployee);
+  }
+  
+  // Add peers (they share the same manager as current user)
+  peers.forEach(peer => {
+    const peerEmployee = transformGraphUserToEmployee(
+      peer,
+      manager?.id || null
+    );
+    contextEmployees.push(peerEmployee);
+  });
+  
+  // Add direct reports (they report to current user)
+  directReports.forEach(report => {
+    const reportEmployee = transformGraphUserToEmployee(
+      report,
+      currentUserEmployee.id
+    );
+    contextEmployees.push(reportEmployee);
+    
+    // Add second-level reports (they report to the direct report)
+    if (report.directReports) {
+      report.directReports.forEach((subReport: any) => {
+        const subReportEmployee = transformGraphUserToEmployee(
+          subReport,
+          report.id
+        );
+        contextEmployees.push(subReportEmployee);
+      });
+    }
+  });
+  
+  return contextEmployees;
+}
+
+/**
+ * Retry wrapper for API calls with exponential backoff
+ */
+export async function retryApiCall<T>(
+  apiCall: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): Promise<T> {
+  let lastError: Error;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await apiCall();
+    } catch (error) {
+      lastError = error as Error;
+      
+      // Don't retry on authentication errors
+      if (lastError.message.includes('401') || lastError.message.includes('403')) {
+        throw lastError;
+      }
+      
+      // Don't retry on the last attempt
+      if (attempt === maxRetries) {
+        throw lastError;
+      }
+      
+      // Exponential backoff
+      const delay = baseDelay * Math.pow(2, attempt - 1);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw lastError!;
+}
+
+/**
+ * Check if error is authentication-related
+ */
+export function isAuthError(error: any): boolean {
+  if (!error) return false;
+  
+  const message = error.message || error.toString();
+  const authErrorPatterns = [
+    '401',
+    '403',
+    'unauthorized',
+    'forbidden',
+    'authentication',
+    'consent_required',
+    'interaction_required',
+    'login_required',
+  ];
+  
+  return authErrorPatterns.some(pattern => 
+    message.toLowerCase().includes(pattern.toLowerCase())
+  );
+}
+
+/**
+ * Check if error is network-related
+ */
+export function isNetworkError(error: any): boolean {
+  if (!error) return false;
+  
+  const message = error.message || error.toString();
+  const networkErrorPatterns = [
+    'network',
+    'fetch',
+    'timeout',
+    'connection',
+    'cors',
+    'net::',
+  ];
+  
+  return networkErrorPatterns.some(pattern => 
+    message.toLowerCase().includes(pattern.toLowerCase())
+  );
+}
+
+/**
+ * Get user-friendly error message for API errors
+ */
+export function getApiErrorMessage(error: any): string {
+  if (!error) return 'Unknown error occurred';
+  
+  if (isAuthError(error)) {
+    return 'Authentication required. Please sign in again.';
+  }
+  
+  if (isNetworkError(error)) {
+    return 'Network error. Please check your internet connection and try again.';
+  }
+  
+  const message = error.message || error.toString();
+  
+  // Microsoft Graph specific errors
+  if (message.includes('Insufficient privileges')) {
+    return 'Insufficient permissions. Please contact your administrator to grant the required permissions.';
+  }
+  
+  if (message.includes('Forbidden')) {
+    return 'Access forbidden. You may not have permission to access this data.';
+  }
+  
+  if (message.includes('Not Found')) {
+    return 'Requested resource not found.';
+  }
+  
+  if (message.includes('Too Many Requests')) {
+    return 'Too many requests. Please wait a moment and try again.';
+  }
+  
+  return message;
+}
+
+/**
+ * Authentication status helpers
+ */
+export const AuthStatusHelper = {
+  isLoading: (status: AuthStatus) => status === 'loading',
+  isAuthenticated: (status: AuthStatus) => status === 'authenticated',
+  isUnauthenticated: (status: AuthStatus) => status === 'unauthenticated',
+  hasError: (status: AuthStatus) => status === 'error',
+  canAttemptLogin: (status: AuthStatus) => status === 'unauthenticated' || status === 'error',
+} as const;
+
+/**
+ * Common authentication error types
+ */
+export const AuthErrors = {
+  CONFIG_INVALID: 'Invalid Azure AD configuration',
+  CONFIG_MISSING: 'Azure AD configuration not found',
+  LOGIN_CANCELLED: 'Login was cancelled by user',
+  LOGIN_FAILED: 'Login failed',
+  TOKEN_ACQUISITION_FAILED: 'Failed to acquire access token',
+  NETWORK_ERROR: 'Network error occurred',
+  PERMISSION_DENIED: 'Permission denied',
+  CONSENT_REQUIRED: 'Admin consent required',
+} as const;
+
+/**
+ * Development environment helpers
+ */
+export const DevHelper = {
+  isDevelopment: () => import.meta.env.DEV,
+  isProduction: () => import.meta.env.PROD,
+  getBaseUrl: () => import.meta.env.VITE_BASE_URL || window.location.origin,
+  logAuthState: (status: AuthStatus, user: any, config: any) => {
+    if (DevHelper.isDevelopment()) {
+      console.group('🔐 Authentication State');
+      console.log('Status:', status);
+      console.log('User:', user);
+      console.log('Config:', config);
+      console.groupEnd();
+    }
+  },
+} as const;

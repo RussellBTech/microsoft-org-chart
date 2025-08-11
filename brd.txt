@@ -1,0 +1,211 @@
+Business Requirements Document (BRD) – Org Chart Management Sandbox Tool
+Version: 1.0
+Date: 2025-08-09
+Status: Draft – Pending client approval
+Prepared by: [Your Name]
+Reviewed by: [Reviewer Names]
+Approved by: [Approver Names]
+
+1. Executive Summary
+The Org Chart Management Sandbox Tool is a web-based platform enabling HR administrators, department managers, and executive assistants to visualize, modify, and share organizational structure scenarios without impacting live Azure Active Directory (AAD) data. The tool reduces manual effort, increases accuracy, and supports faster decision-making through interactive drag-and-drop editing, title changes, and exportable scenario outputs.
+
+2. Business Context and Goals
+Problem Statement: Current organizational chart adjustments require manual spreadsheets or static diagrams, which are slow to produce, prone to error, and difficult to share.
+
+Business Goal: Reduce the time required to model and share organizational changes by 90% while ensuring accuracy and accessibility.
+
+Strategic Fit: Aligns with digital transformation initiatives by replacing offline tools with secure, scalable cloud solutions.
+
+3. Scope
+3.1 In Scope
+Read-only API integration with Azure Active Directory (Microsoft Graph API).
+
+Hierarchical org chart visualization (pan, zoom, collapse/expand).
+
+Sandbox mode with drag-and-drop employee reassignment.
+
+Inline editing of job titles in sandbox.
+
+Save scenarios to internal DB or local storage.
+
+Export scenarios as JSON and PDF.
+
+Role-based access control for editing.
+
+3.2 Out of Scope
+Writing changes back to Azure AD.
+
+Mobile app development (future phase).
+
+Historical scenario rollback (future phase).
+
+4. Stakeholders and Users
+Primary Users:
+
+HR administrators
+
+Department managers
+
+Executive assistants
+
+Stakeholders:
+
+HR leadership
+
+IT security team
+
+Systems integration team
+
+Executive sponsors
+
+5. Success Metrics & KPIs
+≥ 90% reduction in manual chart creation time.
+
+Initial org chart load ≤ 10 seconds for 5,000 employees.
+
+Sandbox export ≤ 3 seconds.
+
+≥ 95% user satisfaction in post-launch survey.
+
+6. Assumptions, Constraints, Out-of-Scope Items
+Users have SSO-enabled accounts.
+
+Tool runs on desktop browsers (Chrome, Edge, Firefox).
+
+Max load tested at 5,000 employees.
+
+No write-back to Azure AD in this phase.
+
+7. Competitive Landscape / Current State
+Existing tools: manual Excel + PowerPoint workflows.
+
+Limitations: high time cost, no real-time collaboration, no scenario testing.
+
+Advantage: faster, interactive, secure.
+
+8. Functional Requirements
+User Stories (sample):
+
+As an HR admin, I can search for employees to quickly locate their position in the org chart.
+
+As a manager, I can drag-and-drop employees between teams in sandbox mode to simulate changes.
+
+As an HR admin, I can export a sandbox scenario in PDF for presentation to leadership.
+
+Edge Cases:
+
+Circular reporting assignments are disallowed.
+
+Max depth of hierarchy enforced to prevent visual overflow.
+
+If API data is incomplete, system flags missing nodes.
+
+9. Non-Functional Requirements
+Performance: TTI ≤ 2.5s, drag-drop frame drop < 5%.
+
+Scalability: Handle up to 10k nodes with degradation notice after 5k.
+
+Accessibility: WCAG 2.2 AA compliance.
+
+Security: Role-based permissions; secure API tokens; HTTPS only.
+
+10. Solution Overview
+10.1 Architecture Description
+Frontend: React-based SPA, responsive 12-column grid, zoom scaling to 50%.
+
+Backend: Node.js API proxy to Microsoft Graph.
+
+Data Storage: Internal DB for scenarios + local browser storage fallback.
+
+Integration: Microsoft Graph API (read-only).
+
+10.2 Data Model
+Entities: Employee, Team, Scenario.
+
+Relationships: Employee → Manager, Scenario → multiple Employees.
+
+Retention: Scenarios retained 12 months.
+
+10.3 External Integrations
+Microsoft Graph API for org data ingestion.
+
+11. Reporting and Analytics
+Usage metrics: # of scenarios created, avg. chart load time, export counts.
+
+Error logging for failed API calls.
+
+Export logs for auditing.
+
+12. Data Migration and Legacy Impact
+No historical migration; initial load from live AAD.
+
+13. Acceptance Criteria & Quality Plan
+Meets all FR/NFR.
+
+Passes cross-browser compatibility.
+
+Accessibility tested with NVDA/JAWS.
+
+Handles 5,000+ nodes without crash.
+
+14. Deployment, Operations & Support
+Cloud-hosted with CI/CD pipeline.
+
+Rollback: Previous build redeployable in < 5 minutes.
+
+Monitoring: API health, load performance.
+
+Support: Tier-1 (helpdesk), Tier-2 (product support).
+
+15. Disaster Recovery & Business Continuity
+RTO: 4 hours, RPO: 24 hours for scenario DB.
+
+API failover to secondary region.
+
+16. Training & Change Management
+User guide + video tutorials.
+
+Release notes on intranet.
+
+Training sessions for HR leads.
+
+17. Risks & Mitigations
+Risk	Impact	Mitigation
+API throttling by Microsoft Graph	High	Implement request caching & batching
+Browser performance on large charts	Medium	Virtualized rendering
+User confusion between sandbox/live data	Medium	Distinct visual cues & disclaimers
+
+18. Timeline & Milestones
+M1: API integration complete – Week 3
+
+M2: Org chart rendering – Week 5
+
+M3: Sandbox editing – Week 8
+
+M4: Export functions – Week 9
+
+M5: UAT & Accessibility testing – Week 11
+
+Go-live: Week 12
+
+19. Feature Prioritization (MoSCoW)
+Must Have: API integration, sandbox mode, export, RBAC.
+
+Should Have: Local storage autosave.
+
+Could Have: Theming.
+
+Won’t Have (Now): Mobile app.
+
+20. Glossary & References
+Sandbox Mode: Editing environment that does not affect live AAD data.
+
+Node: A single employee card.
+
+Scenario: Saved org structure configuration.
+
+Microsoft Graph API
+https://learn.microsoft.com/en-us/graph/api/resources/organization
+
+WCAG 2.2 Guidelines
+https://www.w3.org/WAI/WCAG22/
