@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Edit2, Save, User, Mail, Phone, Building, MapPin } from 'lucide-react';
 import type { Employee } from '../data/mockData';
+import { ColorPicker } from './ColorPicker';
 
 interface EmployeeModalProps {
   employee: Employee;
@@ -143,6 +144,16 @@ export function EmployeeModal({
                 )}
               </div>
             </div>
+
+            {/* Color Picker - Only in sandbox editing mode */}
+            {isEditing && isSandboxMode && (
+              <div className="pt-4 border-t border-gray-100">
+                <ColorPicker
+                  currentColor={editForm.customColor}
+                  onColorChange={(color) => setEditForm({ ...editForm, customColor: color })}
+                />
+              </div>
+            )}
 
             {employee.phone && (
               <div className="flex items-center space-x-3">

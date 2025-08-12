@@ -8,6 +8,7 @@ export interface Employee {
   location?: string;
   avatar?: string;
   managerId?: string;
+  customColor?: string; // For sandbox mode color customization
 }
 
 export interface Scenario {

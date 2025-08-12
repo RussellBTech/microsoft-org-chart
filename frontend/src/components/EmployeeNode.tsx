@@ -1,6 +1,7 @@
 import React from 'react';
 import { ChevronDown, ChevronRight, User, Mail, Phone, MoreVertical, ArrowRightLeft } from 'lucide-react';
 import type { Employee } from '../data/mockData';
+import { getCardColorStyles, getColorHex } from './ColorPicker';
 
 type DisplayMode = 'horizontal' | 'vertical' | 'collapsed';
 
@@ -63,15 +64,19 @@ export function EmployeeNode({
     // This would need access to the children map, but for now we'll use a placeholder
     return 0; // Will be updated with actual count in parent component
   };
+
+  // Get color styles (custom color overrides other states except moved/highlighted)
+  const colorStyles = getCardColorStyles(employee.customColor);
+  
   return (
     <div
       className={`
-        bg-white rounded-lg shadow-sm border p-4 w-64
+        rounded-lg shadow-sm border p-4 w-64
         transition-all duration-200 hover:shadow-md
         ${wasMoved && isSandboxMode ? 'ring-2 ring-orange-400 bg-orange-50 border-orange-300' :
           isCenterPerson ? 'ring-2 ring-purple-500 bg-purple-50 border-purple-300' : 
           isHighlighted ? 'ring-2 ring-blue-500 bg-blue-50 border-blue-300' : 
-          'border-gray-200 hover:border-gray-300'}
+          `${colorStyles.background} ${colorStyles.border} ${colorStyles.hover}`}
         ${isSandboxMode ? 'cursor-move' : 'cursor-pointer'}
         relative
       `}
@@ -86,6 +91,14 @@ export function EmployeeNode({
       {wasMoved && isSandboxMode && (
         <div className="absolute -top-2 -right-2 bg-orange-500 text-white rounded-full p-1 shadow-md z-20" title="Employee has been reassigned">
           <ArrowRightLeft className="h-3 w-3" />
+        </div>
+      )}
+      
+      {/* Custom color indicator */}
+      {employee.customColor && !wasMoved && !isHighlighted && !isCenterPerson && (
+        <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full shadow-sm z-10" 
+             style={{ backgroundColor: getColorHex(employee.customColor) }}
+             title={`Custom color: ${employee.customColor}`}>
         </div>
       )}
       
