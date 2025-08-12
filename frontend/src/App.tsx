@@ -64,6 +64,7 @@ function AppContent() {
   const [employees, setEmployees] = useState<Employee[]>([]); // Currently displayed employees
   const [baseEmployees, setBaseEmployees] = useState<Employee[]>([]); // Original/live data for current view
   const [sandboxChanges, setSandboxChanges] = useState<Map<string, Employee>>(new Map()); // Sandbox modifications
+  const [reassignedEmployeeIds, setReassignedEmployeeIds] = useState<Set<string>>(new Set()); // Track only manager changes
   const [allEmployees, setAllEmployees] = useState<Employee[]>([]); // Full org dataset for searching
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
@@ -375,6 +376,14 @@ function AppContent() {
   const handleEmployeeUpdate = (updatedEmployee: Employee) => {
     if (!isSandboxMode) return;
     
+    // Check if this is a manager change
+    const originalEmployee = baseEmployees.find(emp => emp.id === updatedEmployee.id);
+    if (originalEmployee && originalEmployee.managerId !== updatedEmployee.managerId) {
+      // Manager changed - mark as reassigned
+      setReassignedEmployeeIds(prev => new Set(prev.add(updatedEmployee.id)));
+    }
+    // Note: Color, title, and other changes don't mark as reassigned
+    
     // Add to sandbox changes
     setSandboxChanges(prev => new Map(prev.set(updatedEmployee.id, updatedEmployee)));
     
@@ -393,6 +402,9 @@ function AppContent() {
     if (!currentEmployee) return;
     
     const updatedEmployee = { ...currentEmployee, managerId: newManagerId };
+    
+    // Mark as reassigned (drag & drop always changes manager)
+    setReassignedEmployeeIds(prev => new Set(prev.add(employeeId)));
     
     // Add to sandbox changes
     setSandboxChanges(prev => new Map(prev.set(employeeId, updatedEmployee)));
@@ -438,6 +450,7 @@ function AppContent() {
   const executeResetToLive = () => {
     // Clear sandbox changes and unsaved flag
     setSandboxChanges(new Map());
+    setReassignedEmployeeIds(new Set());
     setHasUnsavedChanges(false);
     
     // Reset to base data for current view, or reload if needed
@@ -935,7 +948,7 @@ function AppContent() {
               searchTerm={searchTerm}
               isSandboxMode={isSandboxMode}
               centerPersonId={viewConfig.centerPersonId}
-              movedEmployeeIds={new Set(sandboxChanges.keys())}
+              movedEmployeeIds={reassignedEmployeeIds}
               baseEmployees={baseEmployees}
               onEmployeeSelect={setSelectedEmployee}
               onEmployeeReassign={handleEmployeeReassign}
