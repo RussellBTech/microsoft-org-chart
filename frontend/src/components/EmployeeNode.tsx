@@ -65,18 +65,42 @@ export function EmployeeNode({
     return 0; // Will be updated with actual count in parent component
   };
 
-  // Get color styles (custom color overrides other states except moved/highlighted)
+  // Get color styles - custom color takes priority over moved state
   const colorStyles = getCardColorStyles(employee.customColor);
+  
+  // Determine the card styling with proper priority:
+  // 1. Center person (purple) - highest priority
+  // 2. Highlighted/search (blue)
+  // 3. Custom color (if set)
+  // 4. Moved indicator (orange) - shown as ring only if custom color exists
+  // 5. Default styling
+  
+  const getCardClasses = () => {
+    if (isCenterPerson) {
+      return 'ring-2 ring-purple-500 bg-purple-50 border-purple-300';
+    }
+    if (isHighlighted) {
+      return 'ring-2 ring-blue-500 bg-blue-50 border-blue-300';
+    }
+    if (employee.customColor) {
+      // If moved AND has custom color, show custom color with orange ring
+      if (wasMoved && isSandboxMode) {
+        return `${colorStyles.background} ${colorStyles.border} ring-2 ring-orange-400`;
+      }
+      return `${colorStyles.background} ${colorStyles.border} ${colorStyles.hover}`;
+    }
+    if (wasMoved && isSandboxMode) {
+      return 'ring-2 ring-orange-400 bg-orange-50 border-orange-300';
+    }
+    return `${colorStyles.background} ${colorStyles.border} ${colorStyles.hover}`;
+  };
   
   return (
     <div
       className={`
         rounded-lg shadow-sm border p-4 w-64
         transition-all duration-200 hover:shadow-md
-        ${wasMoved && isSandboxMode ? 'ring-2 ring-orange-400 bg-orange-50 border-orange-300' :
-          isCenterPerson ? 'ring-2 ring-purple-500 bg-purple-50 border-purple-300' : 
-          isHighlighted ? 'ring-2 ring-blue-500 bg-blue-50 border-blue-300' : 
-          `${colorStyles.background} ${colorStyles.border} ${colorStyles.hover}`}
+        ${getCardClasses()}
         ${isSandboxMode ? 'cursor-move' : 'cursor-pointer'}
         relative
       `}
@@ -87,18 +111,10 @@ export function EmployeeNode({
       onDrop={handleDrop}
       onClick={() => onSelect(employee)}
     >
-      {/* Moved indicator badge */}
+      {/* Moved indicator badge - always show if moved */}
       {wasMoved && isSandboxMode && (
         <div className="absolute -top-2 -right-2 bg-orange-500 text-white rounded-full p-1 shadow-md z-20" title="Employee has been reassigned">
           <ArrowRightLeft className="h-3 w-3" />
-        </div>
-      )}
-      
-      {/* Custom color indicator */}
-      {employee.customColor && !wasMoved && !isHighlighted && !isCenterPerson && (
-        <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full shadow-sm z-10" 
-             style={{ backgroundColor: getColorHex(employee.customColor) }}
-             title={`Custom color: ${employee.customColor}`}>
         </div>
       )}
       
