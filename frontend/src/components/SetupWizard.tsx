@@ -103,21 +103,39 @@ export function SetupWizard({ onComplete, onUseMockData }: SetupWizardProps) {
             </div>
           </div>
 
-          <div className="flex gap-3">
+          <div className="space-y-4">
             <button
               onClick={() => setStep('config')}
-              className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center justify-center"
+              className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center justify-center"
             >
-              Configure Azure AD
+              Configure Azure AD Connection
               <ArrowRight className="w-4 h-4 ml-2" />
             </button>
+            
             {onUseMockData && (
-              <button
-                onClick={onUseMockData}
-                className="flex-1 bg-gray-100 text-gray-700 px-6 py-3 rounded-lg font-medium hover:bg-gray-200 transition-colors"
-              >
-                Use Demo Data
-              </button>
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-gray-300"></div>
+                </div>
+                <div className="relative flex justify-center text-sm">
+                  <span className="px-2 bg-white text-gray-500">or</span>
+                </div>
+              </div>
+            )}
+            
+            {onUseMockData && (
+              <div className="text-center">
+                <button
+                  onClick={onUseMockData}
+                  className="w-full bg-green-50 border border-green-200 text-green-700 px-6 py-3 rounded-lg font-medium hover:bg-green-100 transition-colors flex items-center justify-center"
+                >
+                  <span className="mr-2">🚀</span>
+                  Try Demo Mode (No Setup Required)
+                </button>
+                <p className="text-xs text-gray-500 mt-2">
+                  Explore all features with sample data • No Microsoft account needed
+                </p>
+              </div>
             )}
           </div>
         </div>

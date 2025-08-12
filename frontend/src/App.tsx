@@ -301,9 +301,8 @@ function AppContent() {
       loadGraphData();
     } else if (useMockData && employees.length === 0) {
       loadMockData();
-    } else if (!hasValidConfig && employees.length === 0) {
-      loadMockData();
     }
+    // Removed automatic mock data fallback - let user choose via setup wizard
   }, [status, hasValidConfig, useMockData]); // Remove loadGraphData and employees.length from deps to prevent loops
 
   /**
