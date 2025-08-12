@@ -9,13 +9,12 @@ interface ViewModeConfig {
   centerPersonId?: string;
   department?: string;
   searchQuery?: string;
-  depthUp: number;
-  depthDown: number;
 }
 
 interface ViewModeSelectorProps {
   currentUser: Employee | null;
   employees: Employee[];
+  allEmployees: Employee[]; // Full dataset for accurate counts
   departments: string[];
   viewConfig: ViewModeConfig;
   onViewChange: (config: ViewModeConfig) => void;
@@ -30,6 +29,7 @@ interface ViewModeSelectorProps {
 export function ViewModeSelector({
   currentUser,
   employees,
+  allEmployees,
   departments,
   viewConfig,
   onViewChange,
@@ -40,7 +40,7 @@ export function ViewModeSelector({
   isLoadingBackground = false,
   backgroundDataLoaded = false
 }: ViewModeSelectorProps) {
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(viewConfig.searchQuery || '');
   const [searchResults, setSearchResults] = useState<Employee[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
@@ -50,9 +50,9 @@ export function ViewModeSelector({
   // Get unique departments sorted alphabetically
   const sortedDepartments = [...new Set(departments)].sort();
   
-  // Get department employee counts
+  // Get department employee counts from full dataset
   const departmentCounts = sortedDepartments.reduce((acc, dept) => {
-    acc[dept] = employees.filter(e => e.department === dept).length;
+    acc[dept] = allEmployees.filter(e => e.department === dept).length;
     return acc;
   }, {} as Record<string, number>);
 
@@ -131,6 +131,15 @@ export function ViewModeSelector({
     setSearchQuery(employee.name);
     setShowSearchDropdown(false);
   };
+
+  // Sync search query with view config
+  useEffect(() => {
+    if (viewConfig.mode === 'search' && viewConfig.searchQuery) {
+      setSearchQuery(viewConfig.searchQuery);
+    } else if (viewConfig.mode !== 'search') {
+      setSearchQuery('');
+    }
+  }, [viewConfig.mode, viewConfig.searchQuery]);
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -289,12 +298,6 @@ export function ViewModeSelector({
               Save Changes
             </button>
           )}
-          <button
-            onClick={() => onViewChange({ ...viewConfig, depthDown: viewConfig.depthDown + 1 })}
-            className="text-blue-600 hover:text-blue-700"
-          >
-            Expand one level ▼
-          </button>
         </div>
       </div>
     </div>

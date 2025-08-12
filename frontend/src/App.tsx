@@ -85,12 +85,8 @@ function AppContent() {
     centerPersonId?: string;
     department?: string;
     searchQuery?: string;
-    depthUp: number;
-    depthDown: number;
   }>({
-    mode: 'my-view',
-    depthUp: 2,
-    depthDown: 2
+    mode: 'my-view'
   });
   
   // UI state
@@ -120,8 +116,21 @@ function AppContent() {
       
       const accessToken = await getGraphToken();
       
+      if (!accessToken) {
+        throw new Error('Unable to acquire access token. Please sign in again.');
+      }
+      
       // Load user's context first (fast)
       const myContext = await retryApiCall(() => fetchMyOrgContext(accessToken));
+      
+      console.log('🔍 My View context fetched:', {
+        userId: myContext.currentUser?.id,
+        userName: myContext.currentUser?.displayName,
+        directReportsCount: myContext.directReports?.length,
+        peersCount: myContext.peers?.length,
+        hasNestedReports: myContext.directReports?.some((r: any) => r.directReports?.length > 0),
+        peerWithReports: myContext.peers?.find((p: any) => p.directReports?.length > 0)?.displayName
+      });
       
       // Build context employees with standardized manager relationships
       const contextEmployees = buildOrgContextEmployees(
@@ -143,8 +152,11 @@ function AppContent() {
         new Map(contextEmployees.map(emp => [emp.id, emp])).values()
       );
       
-      setEmployeesWithSandbox(uniqueEmployees);
-      setAllEmployees(uniqueEmployees); // Start with this subset, will expand later
+      setEmployeesWithSandbox(uniqueEmployees, false); // Fresh initial load, don't preserve changes
+      // Only set allEmployees if it's empty - preserve broader dataset if we have it
+      if (allEmployees.length === 0) {
+        setAllEmployees(uniqueEmployees); // Start with this subset, will expand later
+      }
       setDataSource('graph');
       
       // Start background loading of broader org data
@@ -191,6 +203,7 @@ function AppContent() {
       
       // Load broader user data (slower) - limit to reasonable size
       const allUsers = await fetchAllUsers(accessToken);
+      
       const broadOrgEmployees = allUsers.map(transformGraphUserToEmployee);
       
       // Merge with existing context data, prioritizing context data for people we already have
@@ -230,18 +243,52 @@ function AppContent() {
 
   /**
    * Set base employees and apply any sandbox changes
+   * In sandbox mode, be more careful about preserving changes
    */
-  const setEmployeesWithSandbox = useCallback((newBaseEmployees: Employee[]) => {
-    setBaseEmployees(newBaseEmployees);
-    const employeesWithChanges = applySandboxChanges(newBaseEmployees);
-    setEmployees(employeesWithChanges);
-  }, [applySandboxChanges]);
+  const setEmployeesWithSandbox = useCallback((newBaseEmployees: Employee[], preserveChanges: boolean = true) => {
+    if (isSandboxMode && preserveChanges && sandboxChanges.size > 0) {
+      // In sandbox mode with changes, only apply sandbox changes to employees that exist in the new dataset
+      const newEmployeeIds = new Set(newBaseEmployees.map(emp => emp.id));
+      const applicableChanges = new Map();
+      let preservedCount = 0;
+      
+      sandboxChanges.forEach((changedEmp, empId) => {
+        if (newEmployeeIds.has(empId)) {
+          applicableChanges.set(empId, changedEmp);
+          preservedCount++;
+        }
+      });
+      
+      const mergedEmployees = newBaseEmployees.map(emp => {
+        const existingChange = applicableChanges.get(emp.id);
+        if (existingChange) {
+          return {
+            ...emp, // Fresh base data (manager relationships, etc.)
+            ...existingChange, // But preserve sandbox changes (title, managerId edits)
+            id: emp.id // Ensure ID stays consistent
+          };
+        }
+        return emp;
+      });
+      
+      setBaseEmployees(newBaseEmployees);
+      setEmployees(mergedEmployees);
+      if (preservedCount > 0) {
+        console.log(`🔧 Preserved ${preservedCount} sandbox changes during view change (${sandboxChanges.size - preservedCount} not applicable to new view)`);
+      }
+    } else {
+      // Normal operation - just apply current sandbox changes to new base
+      setBaseEmployees(newBaseEmployees);
+      const employeesWithChanges = applySandboxChanges(newBaseEmployees);
+      setEmployees(employeesWithChanges);
+    }
+  }, [applySandboxChanges, isSandboxMode, sandboxChanges]);
 
   /**
    * Load mock data
    */
   const loadMockData = useCallback(() => {
-    setEmployeesWithSandbox(mockEmployees);
+    setEmployeesWithSandbox(mockEmployees, false); // Don't preserve changes when loading fresh mock data
     setAllEmployees(mockEmployees);
     
     // Set first employee as current user for demo
@@ -261,12 +308,15 @@ function AppContent() {
    * Handle authentication and data loading
    */
   useEffect(() => {
-    if (AuthStatusHelper.isAuthenticated(status) && hasValidConfig && !useMockData) {
+    // Only load initial data if we don't have any employees yet
+    if (AuthStatusHelper.isAuthenticated(status) && hasValidConfig && !useMockData && employees.length === 0) {
       loadGraphData();
-    } else if (useMockData || (!hasValidConfig && employees.length === 0)) {
+    } else if (useMockData && employees.length === 0) {
+      loadMockData();
+    } else if (!hasValidConfig && employees.length === 0) {
       loadMockData();
     }
-  }, [status, hasValidConfig, useMockData, loadGraphData, loadMockData, employees.length]);
+  }, [status, hasValidConfig, useMockData]); // Remove loadGraphData and employees.length from deps to prevent loops
 
   /**
    * Handle authentication-related actions
@@ -436,13 +486,36 @@ function AppContent() {
     if (!isAuthenticated || useMockData) {
       // For mock data, just filter locally
       if (newConfig.mode === 'department' && newConfig.department) {
+        console.log(`🔍 Filtering mock data for department: "${newConfig.department}"`);
+        console.log(`Available departments:`, [...new Set(allEmployees.map(e => e.department))]);
+        
         const deptEmployees = allEmployees.filter(e => e.department === newConfig.department);
+        console.log(`Found ${deptEmployees.length} employees in ${newConfig.department} (out of ${allEmployees.length} total)`);
+        
         setEmployeesWithSandbox(deptEmployees);
-        // Update config to ensure centerPersonId is valid for this view
-        const validCenterPerson = deptEmployees.find(e => e.id === newConfig.centerPersonId);
-        const updatedConfig = validCenterPerson 
-          ? newConfig 
-          : { ...newConfig, centerPersonId: undefined };
+        
+        // For department view, try to find a good center person
+        let centerPerson = deptEmployees.find(e => e.id === newConfig.centerPersonId);
+        
+        if (!centerPerson && deptEmployees.length > 0) {
+          // Find the highest person in this department (someone without a manager in this dept)
+          const deptEmployeeIds = new Set(deptEmployees.map(e => e.id));
+          centerPerson = deptEmployees.find(emp => 
+            !emp.managerId || !deptEmployeeIds.has(emp.managerId)
+          );
+          
+          // If still no center, just use the first person
+          if (!centerPerson) {
+            centerPerson = deptEmployees[0];
+          }
+          
+          console.log(`📍 Auto-selected ${centerPerson.name} as department center`);
+        }
+        
+        const updatedConfig = { 
+          ...newConfig, 
+          centerPersonId: centerPerson?.id 
+        };
         setViewConfig(updatedConfig);
       } else if (newConfig.mode === 'my-view' && currentUser) {
         // Show context around current user
@@ -469,25 +542,44 @@ function AppContent() {
         setViewConfig(updatedConfig);
       } else if (newConfig.mode === 'search' && newConfig.centerPersonId) {
         // Show context around searched person
+        console.log(`🔎 Search mode: Looking for person ${newConfig.centerPersonId} in ${allEmployees.length} employees`);
         const centerPerson = allEmployees.find(e => e.id === newConfig.centerPersonId);
         if (centerPerson) {
+          console.log(`✅ Found ${centerPerson.name} for search view`);
           const contextIds = new Set<string>();
           contextIds.add(centerPerson.id);
           
-          // Add manager and peers
+          // Add manager and their manager (grandmanager)
           if (centerPerson.managerId) {
             const manager = allEmployees.find(e => e.id === centerPerson.managerId);
             if (manager) {
               contextIds.add(manager.id);
+              
+              // Add grandmanager
+              if (manager.managerId) {
+                const grandManager = allEmployees.find(e => e.id === manager.managerId);
+                if (grandManager) {
+                  contextIds.add(grandManager.id);
+                }
+              }
+              
+              // Add peers (people with same manager)
               allEmployees.filter(e => e.managerId === centerPerson.managerId).forEach(e => contextIds.add(e.id));
             }
           }
           
-          // Add direct reports
-          allEmployees.filter(e => e.managerId === centerPerson.id).forEach(e => contextIds.add(e.id));
+          // Add direct reports (2 levels deep for now)
+          allEmployees.filter(e => e.managerId === centerPerson.id).forEach(report => {
+            contextIds.add(report.id);
+            // Add their direct reports
+            allEmployees.filter(e => e.managerId === report.id).forEach(subReport => {
+              contextIds.add(subReport.id);
+            });
+          });
           
           const contextEmployees = allEmployees.filter(e => contextIds.has(e.id));
           setEmployeesWithSandbox(contextEmployees);
+          console.log(`🔍 Search context for ${centerPerson.name}: ${contextEmployees.length} employees`);
           // Config is already correct for search mode
           setViewConfig(newConfig);
         } else {
@@ -528,31 +620,36 @@ function AppContent() {
       if (newConfig.mode === 'department' && newConfig.department) {
         setLoadingType('department');
         
-        // If we have background data loaded, use it (faster)
-        if (backgroundDataLoaded && allEmployees.length > 0) {
-          const deptEmployees = allEmployees.filter(emp => emp.department === newConfig.department);
-          setEmployeesWithSandbox(deptEmployees);
-          console.log(`📁 Using cached data for ${newConfig.department}: ${deptEmployees.length} employees`);
+        // Always try to fetch from Graph API for departments to get complete data
+        console.log(`🌐 Fetching ${newConfig.department} employees from Graph API`);
+        const deptUsers = await fetchDepartmentUsers(accessToken, newConfig.department);
+        const deptEmployees = deptUsers.map(transformGraphUserToEmployee);
+        setEmployeesWithSandbox(deptEmployees); // Preserve changes by default in view switches
+        console.log(`📁 Fetched ${deptEmployees.length} employees for ${newConfig.department}`);
+        
+        // For department view, try to find a good center person
+        let centerPerson = deptEmployees.find(e => e.id === newConfig.centerPersonId);
+        
+        if (!centerPerson && deptEmployees.length > 0) {
+          // Find the highest person in this department (someone without a manager in this dept)
+          const deptEmployeeIds = new Set(deptEmployees.map(e => e.id));
+          centerPerson = deptEmployees.find(emp => 
+            !emp.managerId || !deptEmployeeIds.has(emp.managerId)
+          );
           
-          // Update config to ensure centerPersonId is valid for this view
-          const validCenterPerson = deptEmployees.find(e => e.id === newConfig.centerPersonId);
-          const updatedConfig = validCenterPerson 
-            ? newConfig 
-            : { ...newConfig, centerPersonId: undefined };
-          setViewConfig(updatedConfig);
-        } else {
-          // Fallback to API fetch
-          const deptUsers = await fetchDepartmentUsers(accessToken, newConfig.department);
-          const deptEmployees = deptUsers.map(transformGraphUserToEmployee);
-          setEmployeesWithSandbox(deptEmployees);
+          // If still no center, just use the first person
+          if (!centerPerson) {
+            centerPerson = deptEmployees[0];
+          }
           
-          // Update config to ensure centerPersonId is valid for this view
-          const validCenterPerson = deptEmployees.find(e => e.id === newConfig.centerPersonId);
-          const updatedConfig = validCenterPerson 
-            ? newConfig 
-            : { ...newConfig, centerPersonId: undefined };
-          setViewConfig(updatedConfig);
+          console.log(`📍 Auto-selected ${centerPerson.name} as department center`);
         }
+        
+        const updatedConfig = { 
+          ...newConfig, 
+          centerPersonId: centerPerson?.id 
+        };
+        setViewConfig(updatedConfig);
         
       } else if (newConfig.mode === 'search' && newConfig.centerPersonId) {
         setLoadingType('user-context');
@@ -560,7 +657,16 @@ function AppContent() {
           // Fetch user context
           const userContext = await fetchUserOrgContext(accessToken, newConfig.centerPersonId);
           
-          // Build context employees with standardized manager relationships
+          console.log('🔍 Search context fetched:', {
+            userId: userContext.user?.id,
+            userName: userContext.user?.displayName,
+            directReportsCount: userContext.directReports?.length,
+            peersCount: userContext.peers?.length,
+            hasNestedReports: userContext.directReports?.some((r: any) => r.directReports?.length > 0),
+            peerWithReports: userContext.peers?.find((p: any) => p.directReports?.length > 0)?.displayName
+          });
+          
+          // Build initial context employees with standardized manager relationships
           const contextEmployees = buildOrgContextEmployees(
             userContext.user,
             userContext.manager,
@@ -574,9 +680,54 @@ function AppContent() {
             new Map(contextEmployees.map(emp => [emp.id, emp])).values()
           );
           setEmployeesWithSandbox(uniqueEmployees);
+          console.log(`📊 Search context: ${uniqueEmployees.length} employees with full depth`);
+          
           setViewConfig(newConfig);
         } catch (error) {
-          console.warn(`Could not fetch context for user ${newConfig.centerPersonId}, falling back to my-view:`, error);
+          console.error(`❌ Could not fetch context for user ${newConfig.centerPersonId}:`, error);
+          console.log('Error details:', {
+            centerPersonId: newConfig.centerPersonId,
+            error: error instanceof Error ? error.message : error
+          });
+          
+          // Try to show the person from local data if available
+          if (allEmployees.length > 0) {
+            const localPerson = allEmployees.find(e => e.id === newConfig.centerPersonId);
+            if (localPerson) {
+              console.log(`📍 Using local data for ${localPerson.name}`);
+              // Build context from local data
+              const contextIds = new Set<string>();
+              contextIds.add(localPerson.id);
+              
+              // Add their manager and peers
+              if (localPerson.managerId) {
+                const manager = allEmployees.find(e => e.id === localPerson.managerId);
+                if (manager) {
+                  contextIds.add(manager.id);
+                  // Add peers
+                  allEmployees.filter(e => e.managerId === localPerson.managerId).forEach(e => contextIds.add(e.id));
+                }
+              }
+              
+              // Add direct reports (2 levels deep)
+              allEmployees.filter(e => e.managerId === localPerson.id).forEach(report => {
+                contextIds.add(report.id);
+                // Add their reports too
+                allEmployees.filter(e => e.managerId === report.id).forEach(subReport => {
+                  contextIds.add(subReport.id);
+                });
+              });
+              
+              const contextEmployees = allEmployees.filter(e => contextIds.has(e.id));
+              setEmployeesWithSandbox(contextEmployees);
+              setViewConfig(newConfig);
+              console.log(`✅ Built local context for ${localPerson.name}: ${contextEmployees.length} employees`);
+              return; // Don't fall back to my-view
+            }
+          }
+          
+          // Only fall back to my-view if we really can't find the person
+          console.warn(`⚠️ Person ${newConfig.centerPersonId} not found anywhere, falling back to my-view`);
           // Clear the user-context loading state before fallback
           setLoadingType(null);
           setIsLoadingData(true);
@@ -592,7 +743,11 @@ function AppContent() {
         // Reload my context and ensure centerPersonId matches current user
         const updatedConfig = { ...newConfig, centerPersonId: currentUser?.id };
         setViewConfig(updatedConfig);
-        await loadGraphData();
+        
+        // Only reload if we don't have data or if explicitly switching TO my-view
+        if (employees.length === 0 || viewConfig.mode !== 'my-view') {
+          await loadGraphData();
+        }
       }
       
     } catch (error) {
@@ -608,7 +763,7 @@ function AppContent() {
       setIsLoadingData(false);
       setLoadingType(null);
     }
-  }, [isAuthenticated, useMockData, getGraphToken, currentUser, allEmployees, loadGraphData]);
+  }, [isAuthenticated, useMockData, getGraphToken, currentUser, allEmployees, loadGraphData, viewConfig.mode, employees.length, setEmployeesWithSandbox, backgroundDataLoaded]);
 
   /**
    * Handle confirmation dialog actions
@@ -740,8 +895,51 @@ function AppContent() {
     );
   }
 
+  // Show login prompt if we have config but user isn't authenticated
+  if (hasValidConfig && !isAuthenticated && !useMockData) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-8">
+          <div className="text-center">
+            <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4">
+              <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+              Welcome Back
+            </h2>
+            <p className="text-gray-600 mb-6">
+              Sign in to access your organization chart
+            </p>
+            <button
+              onClick={handleLogin}
+              className="w-full bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+            >
+              Sign in with Microsoft
+            </button>
+            <div className="mt-6 pt-6 border-t border-gray-200">
+              <button
+                onClick={handleUseMockData}
+                className="text-gray-600 hover:text-gray-700 text-sm underline"
+              >
+                Continue with demo data
+              </button>
+            </div>
+            {azureConfig && (
+              <div className="mt-4 text-xs text-gray-500">
+                Connected to: {azureConfig.tenantId}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Header - Fixed at top */}
       <Header
         isSandboxMode={isSandboxMode}
         onToggleSandbox={setIsSandboxMode}
@@ -759,11 +957,13 @@ function AppContent() {
         onLogout={logout}
       />
       
-      {/* View Mode Selector */}
-      <div className="mt-16">
+      {/* Sticky Navigation Container */}
+      <div className="fixed top-16 left-0 right-0 z-40">
+        {/* View Mode Selector */}
         <ViewModeSelector
           currentUser={currentUser}
           employees={employees}
+          allEmployees={allEmployees}
           departments={departments}
           viewConfig={viewConfig}
           onViewChange={handleViewChange}
@@ -774,51 +974,60 @@ function AppContent() {
           isLoadingBackground={isLoadingBackground}
           backgroundDataLoaded={backgroundDataLoaded}
         />
-      </div>
-      
-      {/* Data error banner */}
-      {dataError && (
-        <div className="bg-yellow-50 border-b border-yellow-200 px-6 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <div className="text-yellow-800 text-sm">
-                <strong>Data Loading Error:</strong> {dataError}
-                {dataSource === 'mock' && ' (Using demo data instead)'}
+        
+        {/* Data error banner */}
+        {dataError && (
+          <div className="bg-yellow-50 border-b border-yellow-200 px-6 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <div className="text-yellow-800 text-sm">
+                  <strong>Data Loading Error:</strong> {dataError}
+                  {dataSource === 'mock' && ' (Using demo data instead)'}
+                </div>
+              </div>
+              <button
+                onClick={handleRetryData}
+                className="text-yellow-600 hover:text-yellow-700 text-sm underline"
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Development status indicator */}
+        {DevHelper.isDevelopment() && (
+          <div className="bg-gray-100 border-b px-6 py-2 text-xs text-gray-600">
+            <div className="flex items-center justify-between">
+              <div>
+                Status: {status} | Data Source: {dataSource || 'none'} | 
+                Users: {employees.length} | 
+                {isAuthenticated ? `Authenticated as ${user?.name}` : 'Not authenticated'}
+                {backgroundDataLoaded && ` | Full Org: ${allEmployees.length} employees`}
               </div>
             </div>
-            <button
-              onClick={handleRetryData}
-              className="text-yellow-600 hover:text-yellow-700 text-sm underline"
-            >
-              Retry
-            </button>
           </div>
-        </div>
-      )}
-
-      {/* Development status indicator */}
-      {DevHelper.isDevelopment() && (
-        <div className="bg-gray-100 border-b px-6 py-2 text-xs text-gray-600">
-          <div className="flex items-center justify-between">
-            <div>
-              Status: {status} | Data Source: {dataSource || 'none'} | 
-              Users: {employees.length} | 
-              {isAuthenticated ? `Authenticated as ${user?.name}` : 'Not authenticated'}
-              {backgroundDataLoaded && ` | Full Org: ${allEmployees.length} employees`}
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
       
-      <div className="flex h-screen pt-16">
-        <SearchPanel
-          searchTerm={searchTerm}
-          onSearchChange={setSearchTerm}
-          employees={filteredEmployees}
-          onEmployeeSelect={setSelectedEmployee}
-        />
+      {/* Main Layout - Proper spacing after sticky navigation */}
+      <div className="flex min-h-screen" style={{ paddingTop: '168px' }}>
+        {/* Left Sidebar - Fixed, positioned after sticky nav */}
+        <div className="fixed left-0 z-20 bg-white border-r border-gray-200 w-80" 
+             style={{
+               top: '168px', // Start after header + nav elements
+               height: 'calc(100vh - 168px)'
+             }}>
+          <SearchPanel
+            searchTerm={searchTerm}
+            onSearchChange={setSearchTerm}
+            employees={filteredEmployees}
+            onEmployeeSelect={setSelectedEmployee}
+          />
+        </div>
         
-        <div className="flex-1">
+        {/* Main Content Area - With left margin for fixed sidebar */}
+        <div className="flex-1 ml-80">
           {employees.length === 0 && !dataError ? (
             <LoadingOrgChart />
           ) : (
@@ -827,6 +1036,8 @@ function AppContent() {
               searchTerm={searchTerm}
               isSandboxMode={isSandboxMode}
               centerPersonId={viewConfig.centerPersonId}
+              movedEmployeeIds={new Set(sandboxChanges.keys())}
+              baseEmployees={baseEmployees}
               onEmployeeSelect={setSelectedEmployee}
               onEmployeeReassign={handleEmployeeReassign}
             />

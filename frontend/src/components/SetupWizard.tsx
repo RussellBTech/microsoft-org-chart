@@ -62,6 +62,11 @@ export function SetupWizard({ onComplete, onUseMockData }: SetupWizardProps) {
             <p className="text-gray-600">
               Visualize and manage your organization structure with Microsoft Graph
             </p>
+            {!window.localStorage.getItem('azure-ad-config') && (
+              <p className="text-sm text-gray-500 mt-2">
+                First-time setup required - let's configure your Azure AD connection
+              </p>
+            )}
           </div>
 
           <div className="space-y-6 mb-8">

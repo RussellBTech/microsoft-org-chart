@@ -65,11 +65,15 @@ export async function makeGraphRequest<T = any>(
  */
 export async function fetchAllUsers(accessToken: string) {
   let users: any[] = [];
-  // Filter for only enabled accounts (current employees)
-  let nextUrl: string | null = `${GRAPH_ENDPOINTS.USERS}?$filter=accountEnabled eq true&$select=id,displayName,jobTitle,department,mail,userPrincipalName,manager,employeeId,accountEnabled&$expand=manager($select=id,displayName)`;
+  // Filter for only enabled accounts with manager expansion and ConsistencyLevel header
+  let nextUrl: string | null = `${GRAPH_ENDPOINTS.USERS}?$filter=accountEnabled eq true&$select=id,displayName,jobTitle,department,mail,userPrincipalName,employeeId,accountEnabled&$expand=manager($select=id,displayName)`;
   
   while (nextUrl) {
-    const response = await makeGraphRequest(nextUrl, accessToken);
+    const response = await makeGraphRequest(nextUrl, accessToken, {
+      headers: {
+        'ConsistencyLevel': 'eventual' // Required for some expand operations
+      }
+    });
     
     if (response.value) {
       // Double-check accountEnabled in case the filter didn't work
@@ -86,7 +90,7 @@ export async function fetchAllUsers(accessToken: string) {
     }
   }
   
-  console.log(`Fetched ${users.length} active users`);
+  console.log(`Fetched ${users.length} active users with manager relationships`);
   return users;
 }
 
@@ -152,26 +156,53 @@ export async function fetchMyOrgContext(accessToken: string) {
     }
   }
   
-  // Get direct reports' direct reports (2 levels down) - fetch individually
-  const expandedReports = [];
-  for (const report of directReports) {
-    const reportWithSubs = { ...report, directReports: [] };
-    try {
-      const subReportsQuery = `/users/${report.id}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
-      const subReportsResponse = await makeGraphRequest(subReportsQuery, accessToken);
-      // Filter for only active sub-reports
-      reportWithSubs.directReports = (subReportsResponse.value || []).filter((user: any) => user.accountEnabled !== false);
-    } catch (error) {
-      console.log(`Could not fetch sub-reports for ${report.id}:`, error);
+  // Recursive function to fetch reports to a certain depth
+  async function fetchReportsRecursively(userId: string, depth: number, maxDepth: number = 3): Promise<any> {
+    if (depth >= maxDepth) {
+      console.log(`📊 Reached max depth ${maxDepth} for user ${userId}`);
+      return [];
     }
-    expandedReports.push(reportWithSubs);
+    
+    try {
+      const reportsQuery = `/users/${userId}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+      const reportsResponse = await makeGraphRequest(reportsQuery, accessToken);
+      const reports = (reportsResponse.value || []).filter((user: any) => user.accountEnabled !== false);
+      
+      if (reports.length > 0) {
+        console.log(`📊 Found ${reports.length} reports at depth ${depth} for user ${userId}`);
+      }
+      
+      // Fetch next level for each report
+      const expandedReports = await Promise.all(
+        reports.map(async (report: any) => ({
+          ...report,
+          directReports: await fetchReportsRecursively(report.id, depth + 1, maxDepth)
+        }))
+      );
+      
+      return expandedReports;
+    } catch (error) {
+      console.log(`Could not fetch reports for user ${userId} at depth ${depth}:`, error);
+      return [];
+    }
   }
+  
+  // Get direct reports with full depth (3 levels down)
+  const expandedReports = await fetchReportsRecursively(currentUser.id, 0, 3);
+  
+  // Get peers' direct reports and their reports (2 levels deep for peers)
+  const expandedPeers = await Promise.all(
+    peers.map(async (peer: any) => ({
+      ...peer,
+      directReports: await fetchReportsRecursively(peer.id, 0, 2)
+    }))
+  );
   
   return {
     currentUser: { ...currentUser, manager, directReports },
     manager,
     grandManager,
-    peers,
+    peers: expandedPeers,
     directReports: expandedReports
   };
 }
@@ -249,17 +280,6 @@ export async function fetchUserOrgContext(accessToken: string, userId: string) {
     console.log('User has no manager:', error);
   }
   
-  // Get direct reports (filter for active ones)
-  let directReports: any[] = [];
-  try {
-    const reportsQuery = `/users/${userId}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
-    const reportsResponse = await makeGraphRequest(reportsQuery, accessToken);
-    // Filter for only active accounts
-    directReports = (reportsResponse.value || []).filter((user: any) => user.accountEnabled !== false);
-  } catch (error) {
-    console.log('Could not fetch direct reports:', error);
-  }
-  
   // Get manager's direct reports (user's peers) if manager exists
   let peers: any[] = [];
   if (manager?.id) {
@@ -289,12 +309,54 @@ export async function fetchUserOrgContext(accessToken: string, userId: string) {
     }
   }
   
+  // Recursive function to fetch reports to a certain depth (same as in fetchMyOrgContext)
+  async function fetchReportsRecursively(userId: string, depth: number, maxDepth: number = 3): Promise<any> {
+    if (depth >= maxDepth) {
+      console.log(`📊 Reached max depth ${maxDepth} for user ${userId}`);
+      return [];
+    }
+    
+    try {
+      const reportsQuery = `/users/${userId}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+      const reportsResponse = await makeGraphRequest(reportsQuery, accessToken);
+      const reports = (reportsResponse.value || []).filter((user: any) => user.accountEnabled !== false);
+      
+      if (reports.length > 0) {
+        console.log(`📊 Found ${reports.length} reports at depth ${depth} for user ${userId}`);
+      }
+      
+      // Fetch next level for each report
+      const expandedReports = await Promise.all(
+        reports.map(async (report: any) => ({
+          ...report,
+          directReports: await fetchReportsRecursively(report.id, depth + 1, maxDepth)
+        }))
+      );
+      
+      return expandedReports;
+    } catch (error) {
+      console.log(`Could not fetch reports for user ${userId} at depth ${depth}:`, error);
+      return [];
+    }
+  }
+  
+  // Get direct reports with full depth (3 levels down) - same as My View
+  const expandedReports = await fetchReportsRecursively(userId, 0, 3);
+  
+  // Get peers' direct reports and their reports (2 levels deep for peers) - same as My View
+  const expandedPeers = await Promise.all(
+    peers.map(async (peer: any) => ({
+      ...peer,
+      directReports: await fetchReportsRecursively(peer.id, 0, 2)
+    }))
+  );
+  
   return {
-    user: { ...user, manager, directReports },
+    user: { ...user, manager, directReports: expandedReports },
     manager,
     grandManager,
-    peers,
-    directReports
+    peers: expandedPeers,
+    directReports: expandedReports
   };
 }
 
@@ -339,6 +401,18 @@ export async function fetchCurrentUser(accessToken: string) {
  * Handles manager relationship consistently across all data sources
  */
 export function transformGraphUserToEmployee(graphUser: any, managerOverride?: string | null): any {
+  const finalManagerId = managerOverride !== undefined ? managerOverride : (graphUser.manager?.id || null);
+  
+  // Debug logging to track manager ID transformation
+  if (graphUser.manager?.id && typeof graphUser.manager.id !== 'string') {
+    console.warn(`⚠️ Manager ID is not a string for ${graphUser.displayName}:`, {
+      managerId: graphUser.manager.id,
+      managerIdType: typeof graphUser.manager.id,
+      managerOverride,
+      finalManagerId
+    });
+  }
+  
   return {
     id: graphUser.id,
     name: graphUser.displayName || 'Unknown User',
@@ -348,7 +422,7 @@ export function transformGraphUserToEmployee(graphUser: any, managerOverride?: s
     phone: graphUser.businessPhones?.[0] || undefined,
     location: graphUser.officeLocation || undefined,
     avatar: undefined, // Microsoft Graph photos require separate API call
-    managerId: managerOverride !== undefined ? managerOverride : (graphUser.manager?.id || null),
+    managerId: finalManagerId,
   };
 }
 
@@ -386,36 +460,38 @@ export function buildOrgContextEmployees(
     contextEmployees.push(grandManagerEmployee);
   }
   
-  // Add peers (they share the same manager as current user)
-  peers.forEach(peer => {
-    const peerEmployee = transformGraphUserToEmployee(
-      peer,
-      manager?.id || null
-    );
-    contextEmployees.push(peerEmployee);
-  });
-  
-  // Add direct reports (they report to current user)
-  directReports.forEach(report => {
-    const reportEmployee = transformGraphUserToEmployee(
-      report,
-      currentUserEmployee.id
-    );
-    contextEmployees.push(reportEmployee);
+  // Recursive function to add employees and their reports
+  function addEmployeeAndReports(employee: any, managerId: string | null, depth: number = 0) {
+    const emp = transformGraphUserToEmployee(employee, managerId);
+    contextEmployees.push(emp);
     
-    // Add second-level reports (they report to the direct report)
-    if (report.directReports) {
-      report.directReports.forEach((subReport: any) => {
-        const subReportEmployee = transformGraphUserToEmployee(
-          subReport,
-          report.id
-        );
-        contextEmployees.push(subReportEmployee);
+    // Add their direct reports recursively
+    if (employee.directReports && Array.isArray(employee.directReports)) {
+      employee.directReports.forEach((report: any) => {
+        addEmployeeAndReports(report, employee.id, depth + 1);
       });
+    }
+  }
+  
+  // Add peers and their full teams
+  peers.forEach(peer => {
+    // Skip if it's the current user (they're already added)
+    if (peer.id !== currentUser.id) {
+      addEmployeeAndReports(peer, manager?.id || null, 0);
     }
   });
   
-  return contextEmployees;
+  // Add direct reports and their full teams
+  directReports.forEach(report => {
+    addEmployeeAndReports(report, currentUserEmployee.id, 0);
+  });
+  
+  // Remove duplicates (in case of any overlap)
+  const uniqueEmployees = Array.from(
+    new Map(contextEmployees.map(emp => [emp.id, emp])).values()
+  );
+  
+  return uniqueEmployees;
 }
 
 /**

@@ -95,6 +95,7 @@ export function AuthProvider({ children, initialConfig = null }: AuthProviderPro
       }
       
       if (!config) {
+        console.log('⚠️ No Azure AD configuration provided - setup required');
         setStatus('unauthenticated');
         return;
       }

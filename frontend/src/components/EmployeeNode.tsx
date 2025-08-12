@@ -1,20 +1,24 @@
 import React from 'react';
-import { ChevronDown, ChevronRight, User, Mail, Phone } from 'lucide-react';
+import { ChevronDown, ChevronRight, User, Mail, Phone, MoreVertical, ArrowRightLeft } from 'lucide-react';
 import type { Employee } from '../data/mockData';
+
+type DisplayMode = 'horizontal' | 'vertical' | 'collapsed';
 
 interface EmployeeNodeProps {
   employee: Employee;
   level: number;
   hasChildren: boolean;
-  isCollapsed: boolean;
+  displayMode: DisplayMode;
   isHighlighted?: boolean;
   isCenterPerson?: boolean;
+  wasMoved?: boolean;
+  originalManagerId?: string | null;
   isDraggedOver: boolean;
   onSelect: (employee: Employee) => void;
   onDragStart: (employee: Employee) => void;
   onDragEnd: () => void;
   onDrop: (employee: Employee) => void;
-  onToggleCollapse: (employeeId: string) => void;
+  onToggleDisplayMode: (employeeId: string) => void;
   isSandboxMode: boolean;
 }
 
@@ -22,15 +26,17 @@ export function EmployeeNode({
   employee,
   level,
   hasChildren,
-  isCollapsed,
+  displayMode,
   isHighlighted,
   isCenterPerson,
+  wasMoved = false,
+  originalManagerId,
   isDraggedOver,
   onSelect,
   onDragStart,
   onDragEnd,
   onDrop,
-  onToggleCollapse,
+  onToggleDisplayMode,
   isSandboxMode
 }: EmployeeNodeProps) {
   const handleDragStart = (e: React.DragEvent) => {
@@ -62,7 +68,8 @@ export function EmployeeNode({
       className={`
         bg-white rounded-lg shadow-sm border p-4 w-64
         transition-all duration-200 hover:shadow-md
-        ${isCenterPerson ? 'ring-2 ring-purple-500 bg-purple-50 border-purple-300' : 
+        ${wasMoved && isSandboxMode ? 'ring-2 ring-orange-400 bg-orange-50 border-orange-300' :
+          isCenterPerson ? 'ring-2 ring-purple-500 bg-purple-50 border-purple-300' : 
           isHighlighted ? 'ring-2 ring-blue-500 bg-blue-50 border-blue-300' : 
           'border-gray-200 hover:border-gray-300'}
         ${isSandboxMode ? 'cursor-move' : 'cursor-pointer'}
@@ -75,19 +82,35 @@ export function EmployeeNode({
       onDrop={handleDrop}
       onClick={() => onSelect(employee)}
     >
+      {/* Moved indicator badge */}
+      {wasMoved && isSandboxMode && (
+        <div className="absolute -top-2 -right-2 bg-orange-500 text-white rounded-full p-1 shadow-md z-20" title="Employee has been reassigned">
+          <ArrowRightLeft className="h-3 w-3" />
+        </div>
+      )}
+      
       {hasChildren && (
         <button
-          className="absolute -bottom-3 left-1/2 transform -translate-x-1/2 w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center hover:bg-gray-50 z-10"
+          className="absolute -bottom-3 left-1/2 transform -translate-x-1/2 w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center hover:bg-gray-50 z-10 group"
           onClick={(e) => {
             e.stopPropagation();
-            onToggleCollapse(employee.id);
+            onToggleDisplayMode(employee.id);
           }}
+          title={`Click to change layout (current: ${displayMode})`}
         >
-          {isCollapsed ? (
-            <ChevronDown className="h-3 w-3 text-gray-600 rotate-180" />
+          {displayMode === 'collapsed' ? (
+            <ChevronRight className="h-3 w-3 text-gray-600" />
+          ) : displayMode === 'vertical' ? (
+            <MoreVertical className="h-3 w-3 text-gray-600" />
           ) : (
             <ChevronDown className="h-3 w-3 text-gray-600" />
           )}
+          {/* Tooltip on hover */}
+          <span className="absolute bottom-full mb-2 hidden group-hover:block bg-gray-800 text-white text-xs px-2 py-1 rounded whitespace-nowrap">
+            {displayMode === 'horizontal' ? 'Switch to vertical' : 
+             displayMode === 'vertical' ? 'Collapse' : 
+             'Expand horizontal'}
+          </span>
         </button>
       )}
       
