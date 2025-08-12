@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Building2, Search, Loader2, User, Database } from 'lucide-react';
+import { Users, Search, Loader2, User } from 'lucide-react';
 
 interface LoadingStateProps {
   message?: string;
@@ -67,17 +67,6 @@ export function LoadingOrgData() {
   );
 }
 
-export function LoadingDepartment({ departmentName }: { departmentName?: string }) {
-  return (
-    <div className="flex items-center justify-center py-16">
-      <LoadingState 
-        message={`Loading ${departmentName || 'Department'}`}
-        submessage="Fetching department members and structure"
-        icon={<Building2 className="h-8 w-8 animate-pulse text-blue-600" />}
-      />
-    </div>
-  );
-}
 
 export function LoadingSearch() {
   return (
@@ -104,18 +93,6 @@ export function LoadingUserContext({ userName }: { userName?: string }) {
   );
 }
 
-export function LoadingDepartments() {
-  return (
-    <div className="flex items-center justify-center py-4">
-      <LoadingState 
-        message="Loading Departments"
-        submessage="Fetching available departments"
-        size="sm"
-        icon={<Database className="h-6 w-6 animate-spin text-blue-600" />}
-      />
-    </div>
-  );
-}
 
 // Inline loading spinner for buttons and small components
 export function InlineSpinner({ size = 'sm' }: { size?: 'xs' | 'sm' | 'md' }) {

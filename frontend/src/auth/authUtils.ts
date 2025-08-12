@@ -207,32 +207,6 @@ export async function fetchMyOrgContext(accessToken: string) {
   };
 }
 
-/**
- * Fetch users by department
- */
-export async function fetchDepartmentUsers(accessToken: string, department: string, maxUsers: number = 500) {
-  // Note: Can't use $expand with $filter on Graph API, so we'll get manager info separately
-  const query = `${GRAPH_ENDPOINTS.USERS}?$filter=accountEnabled eq true and department eq '${encodeURIComponent(department)}'&$select=id,displayName,jobTitle,department,mail,userPrincipalName,accountEnabled&$top=${maxUsers}`;
-  
-  const response = await makeGraphRequest(query, accessToken);
-  // Double-check accountEnabled
-  const activeUsers = (response.value || []).filter((user: any) => user.accountEnabled !== false);
-  
-  // For each user, fetch their manager separately
-  const usersWithManagers = await Promise.all(activeUsers.map(async (user: any) => {
-    try {
-      const managerQuery = `/users/${user.id}/manager?$select=id,displayName`;
-      const manager = await makeGraphRequest(managerQuery, accessToken);
-      return { ...user, manager };
-    } catch (error) {
-      // User has no manager
-      return user;
-    }
-  }));
-  
-  console.log(`Found ${usersWithManagers.length} active users in ${department}`);
-  return usersWithManagers;
-}
 
 /**
  * Search users by name or title
@@ -360,27 +334,6 @@ export async function fetchUserOrgContext(accessToken: string, userId: string) {
   };
 }
 
-/**
- * Get all unique departments from users
- */
-export async function fetchDepartments(accessToken: string): Promise<string[]> {
-  // Note: Graph API doesn't have a direct way to get unique departments
-  // We'll fetch a sample of active users and extract departments
-  const query = `${GRAPH_ENDPOINTS.USERS}?$filter=accountEnabled eq true&$select=department,accountEnabled&$top=999`;
-  const response = await makeGraphRequest(query, accessToken);
-  
-  const departments = new Set<string>();
-  (response.value || []).forEach((user: any) => {
-    // Only include departments from active users
-    if (user.department && user.accountEnabled !== false) {
-      departments.add(user.department);
-    }
-  });
-  
-  const deptList = Array.from(departments).sort();
-  console.log(`Found ${deptList.length} departments with active users`);
-  return deptList;
-}
 
 /**
  * Fetch organization information

@@ -164,7 +164,27 @@ export function OrgChart({
   const toggleDisplayMode = (employeeId: string) => {
     setNodeDisplayModes(prev => {
       const newMap = new Map(prev);
-      const currentMode = newMap.get(employeeId) || 'horizontal';
+      
+      // Get current mode, considering the default based on level and children
+      const employee = employeeMap.get(employeeId);
+      if (!employee) return newMap;
+      
+      const children = childrenMap.get(employeeId) || [];
+      const hasChildren = children.length > 0;
+      if (!hasChildren) return newMap; // No point toggling if no children
+      
+      // Find the employee's level by traversing up the hierarchy
+      let level = 0;
+      let current = employee;
+      while (current.managerId && employeeMap.has(current.managerId)) {
+        level++;
+        current = employeeMap.get(current.managerId)!;
+      }
+      
+      const isDeepestLevel = level >= 2;
+      const defaultMode: DisplayMode = (isDeepestLevel && hasChildren) ? 'vertical' : 'horizontal';
+      
+      const currentMode = newMap.get(employeeId) || defaultMode;
       
       // Cycle through: horizontal → vertical → collapsed → horizontal
       let nextMode: DisplayMode;

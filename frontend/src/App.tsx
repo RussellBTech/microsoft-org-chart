@@ -23,10 +23,8 @@ import {
   AuthStatusHelper,
   fetchAllUsers,
   fetchMyOrgContext,
-  fetchDepartmentUsers,
   searchUsers,
   fetchUserOrgContext,
-  fetchDepartments,
   transformGraphUserToEmployee,
   buildOrgContextEmployees,
   retryApiCall,
@@ -38,7 +36,6 @@ import {
 import { 
   AuthenticatingState, 
   LoadingOrgData, 
-  LoadingDepartment, 
   LoadingUserContext,
   LoadingOrgChart,
   InlineSpinner
@@ -69,10 +66,9 @@ function AppContent() {
   const [sandboxChanges, setSandboxChanges] = useState<Map<string, Employee>>(new Map()); // Sandbox modifications
   const [allEmployees, setAllEmployees] = useState<Employee[]>([]); // Full org dataset for searching
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
-  const [departments, setDepartments] = useState<string[]>([]);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isLoadingBackground, setIsLoadingBackground] = useState(false);
-  const [loadingType, setLoadingType] = useState<'initial' | 'department' | 'search' | 'user-context' | null>(null);
+  const [loadingType, setLoadingType] = useState<'initial' | 'search' | 'user-context' | null>(null);
   const [dataError, setDataError] = useState<string | null>(null);
   const [useMockData, setUseMockData] = useState(false);
   const [dataSource, setDataSource] = useState<'mock' | 'graph' | null>(null);
@@ -83,7 +79,6 @@ function AppContent() {
   const [viewConfig, setViewConfig] = useState<{
     mode: ViewMode;
     centerPersonId?: string;
-    department?: string;
     searchQuery?: string;
   }>({
     mode: 'my-view'
@@ -196,10 +191,6 @@ function AppContent() {
       setIsLoadingBackground(true);
       console.log('🔄 Loading broader organization data in background...');
       
-      // Load departments first (fast)
-      const depts = await fetchDepartments(accessToken);
-      setDepartments(depts);
-      console.log(`📁 Loaded ${depts.length} departments`);
       
       // Load broader user data (slower) - limit to reasonable size
       const allUsers = await fetchAllUsers(accessToken);
@@ -295,9 +286,6 @@ function AppContent() {
     const demoUser = mockEmployees.find(e => !e.managerId) || mockEmployees[0];
     setCurrentUser(demoUser);
     
-    // Extract departments from mock data
-    const mockDepts = [...new Set(mockEmployees.map(e => e.department))].sort();
-    setDepartments(mockDepts);
     
     setDataSource('mock');
     setDataError(null);
@@ -382,8 +370,7 @@ function AppContent() {
   // Employee management handlers (unchanged from original)
   const filteredEmployees = employees.filter(emp =>
     emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    emp.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    emp.department.toLowerCase().includes(searchTerm.toLowerCase())
+    emp.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const handleEmployeeUpdate = (updatedEmployee: Employee) => {
@@ -484,40 +471,8 @@ function AppContent() {
   const executeViewChange = useCallback(async (newConfig: typeof viewConfig) => {
     
     if (!isAuthenticated || useMockData) {
-      // For mock data, just filter locally
-      if (newConfig.mode === 'department' && newConfig.department) {
-        console.log(`🔍 Filtering mock data for department: "${newConfig.department}"`);
-        console.log(`Available departments:`, [...new Set(allEmployees.map(e => e.department))]);
-        
-        const deptEmployees = allEmployees.filter(e => e.department === newConfig.department);
-        console.log(`Found ${deptEmployees.length} employees in ${newConfig.department} (out of ${allEmployees.length} total)`);
-        
-        setEmployeesWithSandbox(deptEmployees);
-        
-        // For department view, try to find a good center person
-        let centerPerson = deptEmployees.find(e => e.id === newConfig.centerPersonId);
-        
-        if (!centerPerson && deptEmployees.length > 0) {
-          // Find the highest person in this department (someone without a manager in this dept)
-          const deptEmployeeIds = new Set(deptEmployees.map(e => e.id));
-          centerPerson = deptEmployees.find(emp => 
-            !emp.managerId || !deptEmployeeIds.has(emp.managerId)
-          );
-          
-          // If still no center, just use the first person
-          if (!centerPerson) {
-            centerPerson = deptEmployees[0];
-          }
-          
-          console.log(`📍 Auto-selected ${centerPerson.name} as department center`);
-        }
-        
-        const updatedConfig = { 
-          ...newConfig, 
-          centerPersonId: centerPerson?.id 
-        };
-        setViewConfig(updatedConfig);
-      } else if (newConfig.mode === 'my-view' && currentUser) {
+      // For mock data, just update config
+      if (newConfig.mode === 'my-view' && currentUser) {
         // Show context around current user
         const contextIds = new Set<string>();
         contextIds.add(currentUser.id);
@@ -617,41 +572,7 @@ function AppContent() {
       setDataError(null);
       const accessToken = await getGraphToken();
       
-      if (newConfig.mode === 'department' && newConfig.department) {
-        setLoadingType('department');
-        
-        // Always try to fetch from Graph API for departments to get complete data
-        console.log(`🌐 Fetching ${newConfig.department} employees from Graph API`);
-        const deptUsers = await fetchDepartmentUsers(accessToken, newConfig.department);
-        const deptEmployees = deptUsers.map(transformGraphUserToEmployee);
-        setEmployeesWithSandbox(deptEmployees); // Preserve changes by default in view switches
-        console.log(`📁 Fetched ${deptEmployees.length} employees for ${newConfig.department}`);
-        
-        // For department view, try to find a good center person
-        let centerPerson = deptEmployees.find(e => e.id === newConfig.centerPersonId);
-        
-        if (!centerPerson && deptEmployees.length > 0) {
-          // Find the highest person in this department (someone without a manager in this dept)
-          const deptEmployeeIds = new Set(deptEmployees.map(e => e.id));
-          centerPerson = deptEmployees.find(emp => 
-            !emp.managerId || !deptEmployeeIds.has(emp.managerId)
-          );
-          
-          // If still no center, just use the first person
-          if (!centerPerson) {
-            centerPerson = deptEmployees[0];
-          }
-          
-          console.log(`📍 Auto-selected ${centerPerson.name} as department center`);
-        }
-        
-        const updatedConfig = { 
-          ...newConfig, 
-          centerPersonId: centerPerson?.id 
-        };
-        setViewConfig(updatedConfig);
-        
-      } else if (newConfig.mode === 'search' && newConfig.centerPersonId) {
+      if (newConfig.mode === 'search' && newConfig.centerPersonId) {
         setLoadingType('user-context');
         try {
           // Fetch user context
@@ -800,8 +721,7 @@ function AppContent() {
     // Always try local search first (includes both initial context and background data)
     const localResults = allEmployees.filter(emp =>
       emp.name.toLowerCase().includes(normalizedQuery) ||
-      emp.title.toLowerCase().includes(normalizedQuery) ||
-      emp.department.toLowerCase().includes(normalizedQuery)
+      emp.title.toLowerCase().includes(normalizedQuery)
     );
     
     // For mock data or when offline, only use local results
@@ -845,12 +765,6 @@ function AppContent() {
     switch (loadingType) {
       case 'initial':
         return <LoadingOrgData />;
-      case 'department':
-        return (
-          <div className="min-h-screen bg-gray-50 pt-16">
-            <LoadingDepartment departmentName={viewConfig.department} />
-          </div>
-        );
       case 'user-context':
         return (
           <div className="min-h-screen bg-gray-50 pt-16">
@@ -964,7 +878,6 @@ function AppContent() {
           currentUser={currentUser}
           employees={employees}
           allEmployees={allEmployees}
-          departments={departments}
           viewConfig={viewConfig}
           onViewChange={handleViewChange}
           onSearch={handleSearch}
@@ -995,19 +908,6 @@ function AppContent() {
           </div>
         )}
 
-        {/* Development status indicator */}
-        {DevHelper.isDevelopment() && (
-          <div className="bg-gray-100 border-b px-6 py-2 text-xs text-gray-600">
-            <div className="flex items-center justify-between">
-              <div>
-                Status: {status} | Data Source: {dataSource || 'none'} | 
-                Users: {employees.length} | 
-                {isAuthenticated ? `Authenticated as ${user?.name}` : 'Not authenticated'}
-                {backgroundDataLoaded && ` | Full Org: ${allEmployees.length} employees`}
-              </div>
-            </div>
-          </div>
-        )}
       </div>
       
       {/* Main Layout - Proper spacing after sticky navigation */}

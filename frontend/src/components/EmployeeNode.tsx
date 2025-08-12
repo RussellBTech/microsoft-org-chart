@@ -134,7 +134,6 @@ export function EmployeeNode({
             {employee.name}
           </h3>
           <p className="text-xs text-gray-600 truncate">{employee.title}</p>
-          <p className="text-xs text-gray-500 truncate">{employee.department}</p>
           
           <div className="mt-2 space-y-1">
             <div className="flex items-center space-x-1 text-xs text-gray-500">
