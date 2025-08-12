@@ -7,4 +7,9 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
+  base: './', // Ensure relative paths for deployment
+  build: {
+    outDir: 'dist',
+    sourcemap: false, // Disable sourcemaps for production
+  },
 });
