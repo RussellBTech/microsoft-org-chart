@@ -3,16 +3,12 @@ import { persist } from 'zustand/middleware';
 import { Employee, Scenario } from '../data/mockData';
 import { ViewMode } from '../components/ViewModeSelector';
 import { 
-  fetchAllUsers,
-  fetchMyOrgContext,
   fetchUserTeamRecursively,
+  fetchUserOrgContext,
   buildTeamContextFromDirectReports,
   makeGraphRequest,
   searchUsers,
-  fetchUserOrgContext,
   transformGraphUserToEmployee,
-  buildOrgContextEmployees,
-  buildTeamFocusedContext,
   retryApiCall,
   getApiErrorMessage,
   isAuthError
@@ -474,23 +470,23 @@ export const useOrgStore = create<OrgState>()(
           
           if (newConfig.mode === 'search' && newConfig.centerPersonId) {
             try {
-              console.log(`🔄 On-demand loading team for search: ${newConfig.centerPersonId}`);
+              console.log(`🔄 Context-aware loading for user: ${newConfig.centerPersonId}`);
               
-              // Fetch the user's complete team hierarchy on-demand
-              const userWithTeam = await fetchUserTeamRecursively(accessToken, newConfig.centerPersonId);
+              // Use new context-aware fetching that handles both managers and individual contributors
+              const userContext = await fetchUserOrgContext(accessToken, newConfig.centerPersonId);
               
-              if (!userWithTeam) {
+              if (!userContext) {
                 throw new Error(`User ${newConfig.centerPersonId} not found or inactive`);
               }
               
               // Build flat employee list from the hierarchical data
-              const teamEmployees = buildTeamContextFromDirectReports(userWithTeam);
+              const contextEmployees = buildTeamContextFromDirectReports(userContext);
               
-              console.log(`✅ On-demand search loaded: ${teamEmployees.length} employees in ${userWithTeam.displayName}'s team`);
+              console.log(`✅ Context-aware loaded: ${contextEmployees.length} employees for ${userContext.displayName}'s context`);
               
               set({
-                employees: teamEmployees,
-                baseEmployees: teamEmployees
+                employees: contextEmployees,
+                baseEmployees: contextEmployees
               });
             } catch (error) {
               console.error('Failed to fetch user context:', error);

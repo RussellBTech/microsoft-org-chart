@@ -438,8 +438,8 @@ function AppContent() {
             onSearchChange={setSearchTerm}
             employees={filteredEmployees}
             onEmployeeSelect={(employee) => {
-              // Navigate to the employee instead of opening modal
-              changeView({
+              // Use the same navigation pattern as top nav search
+              handleViewChange({
                 mode: 'search',
                 centerPersonId: employee.id,
                 searchQuery: employee.name
@@ -475,7 +475,15 @@ function AppContent() {
           isSandboxMode={isSandboxMode}
           userRole={userRole}
           employees={employees}
-          onEmployeeSelect={setSelectedEmployee}
+          onEmployeeSelect={(employee) => {
+            // Use the same navigation pattern as top nav search
+            setSelectedEmployee(null); // Close current modal first
+            handleViewChange({
+              mode: 'search',
+              centerPersonId: employee.id,
+              searchQuery: employee.name
+            });
+          }}
         />
       )}
 
