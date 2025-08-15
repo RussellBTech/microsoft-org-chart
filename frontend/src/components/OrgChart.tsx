@@ -449,18 +449,18 @@ export function OrgChart({
         
         {/* Connection Lines and Children */}
         {hasChildren && !isCollapsed && children.length > 0 && (
-          <div className="flex flex-col items-center mt-2">
+          <div className="flex flex-col items-center mt-1.5">
             {/* Vertical line down from parent */}
-            <div className="w-0.5 h-2 bg-gray-300"></div>
+            <div className="w-0.5 h-1.5 bg-gray-300"></div>
             
             {shouldRenderVertically ? (
               /* Vertical layout for deepest level */
-              <div className="flex flex-col items-center gap-1 mt-2">
+              <div className="flex flex-col items-center gap-1 mt-1.5">
                 {children.map((child, index) => (
                   <div key={child.id} className="flex flex-col items-center">
                     {/* Vertical connector line */}
                     {index === 0 && <div className="w-0.5 h-1 bg-gray-300"></div>}
-                    {index > 0 && <div className="w-0.5 h-2 bg-gray-300"></div>}
+                    {index > 0 && <div className="w-0.5 h-1.5 bg-gray-300"></div>}
                     
                     {/* Employee node */}
                     <div className="flex-shrink-0">
@@ -496,13 +496,13 @@ export function OrgChart({
                 {/* Horizontal line across children */}
                 {children.length > 1 && (
                   <div className="relative">
-                    <div className="h-0.5 bg-gray-300" style={{ width: `${(children.length - 1) * 200 + 80}px` }}></div>
+                    <div className="h-0.5 bg-gray-300" style={{ width: `${(children.length - 1) * 180 + 70}px` }}></div>
                     {/* Vertical lines down to each child */}
                     {children.map((_, index) => (
                       <div
                         key={index}
-                        className="absolute top-0 w-0.5 h-2 bg-gray-300"
-                        style={{ left: `${index * 200 + 40}px` }}
+                        className="absolute top-0 w-0.5 h-1.5 bg-gray-300"
+                        style={{ left: `${index * 180 + 35}px` }}
                       ></div>
                     ))}
                   </div>
@@ -510,11 +510,11 @@ export function OrgChart({
                 
                 {/* Single vertical line for single child */}
                 {children.length === 1 && (
-                  <div className="w-0.5 h-2 bg-gray-300"></div>
+                  <div className="w-0.5 h-1.5 bg-gray-300"></div>
                 )}
                 
                 {/* Children nodes */}
-                <div className="flex items-start justify-center gap-4 mt-2">
+                <div className="flex items-start justify-center gap-3 mt-1.5">
                   {children.map(child => (
                     <div key={child.id} className="flex-shrink-0">
                       {renderEmployeeTree(child, level + 1)}
@@ -543,7 +543,7 @@ export function OrgChart({
       
       <div
         ref={containerRef}
-        className="h-full overflow-auto p-12"
+        className="h-full overflow-auto p-6"
         style={{
           transform: `scale(${zoom})`,
           transformOrigin: 'top left'
@@ -552,7 +552,7 @@ export function OrgChart({
         <div className="flex flex-col items-center min-w-max">
           {/* Data Quality Indicators */}
           {dataQualityIssues.length > 0 && (
-            <div className="mb-8 max-w-4xl">
+            <div className="mb-6 max-w-4xl">
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                 <div className="flex items-center space-x-2 mb-2">
                   <div className="w-4 h-4 bg-amber-400 rounded-full"></div>
@@ -582,7 +582,7 @@ export function OrgChart({
               </ul>
             </div>
           ) : rootEmployees.length > 1 ? (
-            <div className="flex flex-wrap gap-12 justify-center">
+            <div className="flex flex-wrap gap-8 justify-center">
               {rootEmployees.map(employee => (
                 <div key={employee.id} className="flex flex-col items-center">
                   <div className="text-sm text-gray-500 mb-2">
@@ -594,7 +594,7 @@ export function OrgChart({
             </div>
           ) : (
             <div className="flex flex-col items-center">
-              <div className="text-lg font-medium text-gray-700 mb-4">Organization Hierarchy</div>
+              <div className="text-lg font-medium text-gray-700 mb-3">Organization Hierarchy</div>
               {rootEmployees.map(employee => (
                 <div key={employee.id}>{renderEmployeeTree(employee)}</div>
               ))}
@@ -603,7 +603,7 @@ export function OrgChart({
 
           {/* Orphaned Employees Section */}
           {orphanedEmployees.length > 0 && (
-            <div className="mt-12 w-full max-w-6xl">
+            <div className="mt-8 w-full max-w-6xl">
               <div className="bg-orange-50 border border-orange-200 rounded-lg p-6">
                 <div className="flex items-center space-x-2 mb-4">
                   <div className="w-4 h-4 bg-orange-400 rounded-full"></div>

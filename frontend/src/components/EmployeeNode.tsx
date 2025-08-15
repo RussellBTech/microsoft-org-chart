@@ -95,7 +95,7 @@ export function EmployeeNode({
   // 6. Default styling
   
   const getCardClasses = () => {
-    let baseClass = `rounded-lg shadow-sm border p-4 w-64 transition-all duration-200 hover:shadow-md ${isSandboxMode ? 'cursor-move' : 'cursor-pointer'} relative`;
+    let baseClass = `rounded-lg shadow-sm border p-3 w-52 transition-all duration-200 hover:shadow-md ${isSandboxMode ? 'cursor-move' : 'cursor-pointer'} relative`;
     
     if (isCenterPerson) {
       return `${baseClass} ring-2 ring-purple-500 bg-purple-50 border-purple-300`;
@@ -170,17 +170,17 @@ export function EmployeeNode({
         </button>
       )}
       
-      <div className="flex items-start space-x-3">
+      <div className="flex items-start space-x-2.5">
         <div className="flex-shrink-0">
           {employee.avatar ? (
             <img
               src={employee.avatar}
               alt={employee.name}
-              className="w-12 h-12 rounded-full object-cover"
+              className="w-10 h-10 rounded-full object-cover"
             />
           ) : (
-            <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center">
-              <User className="h-6 w-6 text-gray-500" />
+            <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+              <User className="h-5 w-5 text-gray-500" />
             </div>
           )}
         </div>
@@ -191,7 +191,7 @@ export function EmployeeNode({
           </h3>
           <p className="text-xs text-gray-600 truncate">{employee.title}</p>
           
-          <div className="mt-2 space-y-1">
+          <div className="mt-1.5 space-y-1">
             <div className="flex items-center space-x-1 text-xs text-gray-500">
               <Mail className="h-3 w-3" />
               <span className="truncate">{employee.email}</span>
@@ -205,7 +205,7 @@ export function EmployeeNode({
             
             {/* Team metrics for managers */}
             {showTeamMetrics && (
-              <div className="mt-2 pt-2 border-t border-gray-200">
+              <div className="mt-1.5 pt-1.5 border-t border-gray-200">
                 <div className="flex items-center justify-between text-xs">
                   <div className="flex items-center space-x-1 text-blue-600">
                     <Users className="h-3 w-3" />
@@ -213,21 +213,21 @@ export function EmployeeNode({
                   </div>
                   {totalTeamSize > directReportsCount && (
                     <div className="text-gray-500">
-                      <span>{totalTeamSize} total team</span>
+                      <span>{totalTeamSize} total</span>
                     </div>
                   )}
                 </div>
                 {hasSpanOfControlIssue && (
                   <div className="text-xs text-yellow-600 mt-1">
-                    Consider reducing span of control
+                    Consider reducing span
                   </div>
                 )}
               </div>
             )}
             
             {/* Department badge */}
-            <div className="mt-2">
-              <span className={`inline-block px-2 py-1 text-xs rounded-full ${
+            <div className="mt-1.5">
+              <span className={`inline-block px-2 py-0.5 text-xs rounded-full ${
                 employee.department === 'Executive' ? 'bg-purple-100 text-purple-700' :
                 employee.department === 'Technology' ? 'bg-blue-100 text-blue-700' :
                 employee.department === 'Finance' ? 'bg-green-100 text-green-700' :

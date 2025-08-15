@@ -1,14 +1,29 @@
 export interface Employee {
   id: string;
-  name: string;
-  title: string;
+  name: string; // Maps to displayName
+  title: string; // Maps to jobTitle
   department: string;
-  email: string;
-  phone?: string;
-  location?: string;
-  avatar?: string;
+  email: string; // Maps to mail
+  phone?: string; // Maps to mobilePhone
+  location?: string; // Maps to officeLocation
+  avatar?: string; // Not available from Graph API directly
   managerId?: string;
   customColor?: string; // For sandbox mode color customization
+  
+  // Additional Microsoft Graph API fields
+  userPrincipalName?: string;
+  employeeId?: string;
+  employeeType?: string; // e.g., "Employee", "Contractor"
+  employeeHireDate?: string;
+  companyName?: string;
+  businessPhones?: string[];
+  streetAddress?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+  preferredLanguage?: string;
+  accountEnabled?: boolean;
 }
 
 export interface Scenario {

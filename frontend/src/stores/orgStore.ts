@@ -276,7 +276,7 @@ export const useOrgStore = create<OrgState>()(
           console.log('🔄 Loading current user and their team hierarchy on-demand...');
           
           // Get current user info first
-          const meQuery = '/me?$select=id,displayName,jobTitle,department,mail,userPrincipalName,accountEnabled';
+          const meQuery = '/me?$select=id,displayName,jobTitle,department,mail,userPrincipalName,employeeId,accountEnabled,employeeType,employeeHireDate,companyName,businessPhones,mobilePhone,officeLocation,streetAddress,city,state,postalCode,country,preferredLanguage';
           const currentUser = await retryApiCall(() => makeGraphRequest(meQuery, accessToken));
           
           // Fetch the current user's complete team hierarchy
@@ -378,7 +378,9 @@ export const useOrgStore = create<OrgState>()(
         }
         
         if (!isAuthenticated || useMockData) {
-          // Handle mock data view changes
+          // Handle mock data view changes - update viewConfig immediately
+          set({ viewConfig: newConfig });
+          
           if (newConfig.mode === 'my-view' && currentUser) {
             const contextIds = new Set<string>();
             contextIds.add(currentUser.id);
@@ -401,8 +403,7 @@ export const useOrgStore = create<OrgState>()(
             
             set({
               employees: contextEmployees,
-              baseEmployees: contextEmployees,
-              viewConfig: { ...newConfig, centerPersonId: currentUser.id }
+              baseEmployees: contextEmployees
             });
           } else if (newConfig.mode === 'search' && newConfig.centerPersonId) {
             const centerPerson = allEmployees.find(e => e.id === newConfig.centerPersonId);
@@ -439,19 +440,21 @@ export const useOrgStore = create<OrgState>()(
               
               set({
                 employees: contextEmployees,
-                baseEmployees: contextEmployees,
-                viewConfig: newConfig
+                baseEmployees: contextEmployees
               });
             }
-          } else {
-            set({ viewConfig: newConfig });
           }
           return;
         }
         
         // Handle Graph API view changes
         try {
-          set({ isLoadingData: true, loadingType: 'user-context', dataError: null });
+          set({ 
+            isLoadingData: true, 
+            loadingType: 'user-context', 
+            dataError: null,
+            viewConfig: newConfig // Update viewConfig immediately so loading shows correct user
+          });
           
           const accessToken = await getGraphToken();
           if (!accessToken) throw new Error('No access token');
@@ -474,8 +477,7 @@ export const useOrgStore = create<OrgState>()(
               
               set({
                 employees: teamEmployees,
-                baseEmployees: teamEmployees,
-                viewConfig: newConfig
+                baseEmployees: teamEmployees
               });
             } catch (error) {
               console.error('Failed to fetch user context:', error);

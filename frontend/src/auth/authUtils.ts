@@ -19,6 +19,9 @@ export const GRAPH_ENDPOINTS = {
   DIRECTORY_OBJECTS: '/directoryObjects',
 } as const;
 
+// Extended user fields for comprehensive employee data
+export const USER_SELECT_FIELDS = 'id,displayName,jobTitle,department,mail,userPrincipalName,employeeId,accountEnabled,employeeType,employeeHireDate,companyName,businessPhones,mobilePhone,officeLocation,streetAddress,city,state,postalCode,country,preferredLanguage';
+
 /**
  * Make authenticated request to Microsoft Graph API
  */
@@ -66,7 +69,7 @@ export async function makeGraphRequest<T = any>(
 export async function fetchAllUsers(accessToken: string) {
   let users: any[] = [];
   // Filter for only enabled accounts with manager expansion and ConsistencyLevel header
-  let nextUrl: string | null = `${GRAPH_ENDPOINTS.USERS}?$filter=accountEnabled eq true&$select=id,displayName,jobTitle,department,mail,userPrincipalName,employeeId,accountEnabled&$expand=manager($select=id,displayName)`;
+  let nextUrl: string | null = `${GRAPH_ENDPOINTS.USERS}?$filter=accountEnabled eq true&$select=${USER_SELECT_FIELDS}&$expand=manager($select=id,displayName)`;
   
   console.log('🔄 Starting Graph API call with URL:', nextUrl);
   
@@ -139,7 +142,7 @@ export async function fetchUserTeamRecursively(accessToken: string, userId: stri
   console.log(`🔄 Fetching team hierarchy for user ${userId} (max depth: ${maxDepth})`);
   
   // Get the user's basic info
-  const userQuery = `/users/${userId}?$select=id,displayName,jobTitle,department,mail,userPrincipalName,accountEnabled`;
+  const userQuery = `/users/${userId}?$select=${USER_SELECT_FIELDS}`;
   const user = await makeGraphRequest(userQuery, accessToken);
   
   if (user.accountEnabled === false) {
@@ -155,7 +158,7 @@ export async function fetchUserTeamRecursively(accessToken: string, userId: stri
     }
     
     try {
-      const reportsQuery = `/users/${managerId}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+      const reportsQuery = `/users/${managerId}/directReports?$select=${USER_SELECT_FIELDS}`;
       const reportsResponse = await makeGraphRequest(reportsQuery, accessToken);
       const reports = (reportsResponse.value || []).filter((user: any) => user.accountEnabled !== false);
       
@@ -221,13 +224,13 @@ export function buildTeamContextFromDirectReports(userWithTeam: any): any[] {
  */
 export async function fetchMyOrgContext(accessToken: string) {
   // First get current user basic info
-  const meQuery = `${GRAPH_ENDPOINTS.ME}?$select=id,displayName,jobTitle,department,mail,userPrincipalName,accountEnabled`;
+  const meQuery = `${GRAPH_ENDPOINTS.ME}?$select=${USER_SELECT_FIELDS}`;
   const currentUser = await makeGraphRequest(meQuery, accessToken);
   
   // Get manager separately
   let manager = null;
   try {
-    const managerQuery = `${GRAPH_ENDPOINTS.ME}/manager?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+    const managerQuery = `${GRAPH_ENDPOINTS.ME}/manager?$select=${USER_SELECT_FIELDS}`;
     manager = await makeGraphRequest(managerQuery, accessToken);
     // Check if manager is active
     if (manager && manager.accountEnabled === false) {
@@ -241,7 +244,7 @@ export async function fetchMyOrgContext(accessToken: string) {
   // Get direct reports (only active ones)
   let directReports: any[] = [];
   try {
-    const reportsQuery = `${GRAPH_ENDPOINTS.ME}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+    const reportsQuery = `${GRAPH_ENDPOINTS.ME}/directReports?$select=${USER_SELECT_FIELDS}`;
     const reportsResponse = await makeGraphRequest(reportsQuery, accessToken);
     // Filter for only active accounts
     directReports = (reportsResponse.value || []).filter((user: any) => user.accountEnabled !== false);
@@ -253,7 +256,7 @@ export async function fetchMyOrgContext(accessToken: string) {
   let peers: any[] = [];
   if (manager?.id) {
     try {
-      const peersQuery = `/users/${manager.id}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+      const peersQuery = `/users/${manager.id}/directReports?$select=${USER_SELECT_FIELDS}`;
       const peersResponse = await makeGraphRequest(peersQuery, accessToken);
       // Filter for only active peers
       peers = (peersResponse.value || []).filter((user: any) => user.accountEnabled !== false);
@@ -266,7 +269,7 @@ export async function fetchMyOrgContext(accessToken: string) {
   let grandManager = null;
   if (manager?.id) {
     try {
-      const grandManagerQuery = `/users/${manager.id}/manager?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+      const grandManagerQuery = `/users/${manager.id}/manager?$select=${USER_SELECT_FIELDS}`;
       grandManager = await makeGraphRequest(grandManagerQuery, accessToken);
       // Check if grand manager is active
       if (grandManager && grandManager.accountEnabled === false) {
@@ -286,7 +289,7 @@ export async function fetchMyOrgContext(accessToken: string) {
     }
     
     try {
-      const reportsQuery = `/users/${userId}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+      const reportsQuery = `/users/${userId}/directReports?$select=${USER_SELECT_FIELDS}`;
       const reportsResponse = await makeGraphRequest(reportsQuery, accessToken);
       const reports = (reportsResponse.value || []).filter((user: any) => user.accountEnabled !== false);
       
@@ -336,7 +339,7 @@ export async function fetchMyOrgContext(accessToken: string) {
 export async function searchUsers(accessToken: string, searchQuery: string, maxResults: number = 20) {
   // Graph API search with account enabled filter
   // Note: $search and $filter together require ConsistencyLevel header
-  const query = `${GRAPH_ENDPOINTS.USERS}?$search="displayName:${searchQuery}" OR "jobTitle:${searchQuery}"&$filter=accountEnabled eq true&$select=id,displayName,jobTitle,department,mail,accountEnabled&$top=${maxResults}&$count=true`;
+  const query = `${GRAPH_ENDPOINTS.USERS}?$search="displayName:${searchQuery}" OR "jobTitle:${searchQuery}"&$filter=accountEnabled eq true&$select=${USER_SELECT_FIELDS}&$top=${maxResults}&$count=true`;
   
   const response = await makeGraphRequest(query, accessToken, {
     headers: {
@@ -354,7 +357,7 @@ export async function searchUsers(accessToken: string, searchQuery: string, maxR
  */
 export async function fetchUserOrgContext(accessToken: string, userId: string) {
   // Get user basic info
-  const userQuery = `/users/${userId}?$select=id,displayName,jobTitle,department,mail,userPrincipalName,accountEnabled`;
+  const userQuery = `/users/${userId}?$select=${USER_SELECT_FIELDS}`;
   const user = await makeGraphRequest(userQuery, accessToken);
   
   // Check if the user is active
@@ -365,7 +368,7 @@ export async function fetchUserOrgContext(accessToken: string, userId: string) {
   // Get manager separately
   let manager = null;
   try {
-    const managerQuery = `/users/${userId}/manager?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+    const managerQuery = `/users/${userId}/manager?$select=${USER_SELECT_FIELDS}`;
     manager = await makeGraphRequest(managerQuery, accessToken);
     // Check if manager is active
     if (manager && manager.accountEnabled === false) {
@@ -380,7 +383,7 @@ export async function fetchUserOrgContext(accessToken: string, userId: string) {
   let peers: any[] = [];
   if (manager?.id) {
     try {
-      const peersQuery = `/users/${manager.id}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+      const peersQuery = `/users/${manager.id}/directReports?$select=${USER_SELECT_FIELDS}`;
       const peersResponse = await makeGraphRequest(peersQuery, accessToken);
       // Filter for only active peers
       peers = (peersResponse.value || []).filter((user: any) => user.accountEnabled !== false);
@@ -393,7 +396,7 @@ export async function fetchUserOrgContext(accessToken: string, userId: string) {
   let grandManager = null;
   if (manager?.id) {
     try {
-      const grandManagerQuery = `/users/${manager.id}/manager?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+      const grandManagerQuery = `/users/${manager.id}/manager?$select=${USER_SELECT_FIELDS}`;
       grandManager = await makeGraphRequest(grandManagerQuery, accessToken);
       // Check if grand manager is active
       if (grandManager && grandManager.accountEnabled === false) {
@@ -413,7 +416,7 @@ export async function fetchUserOrgContext(accessToken: string, userId: string) {
     }
     
     try {
-      const reportsQuery = `/users/${userId}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+      const reportsQuery = `/users/${userId}/directReports?$select=${USER_SELECT_FIELDS}`;
       const reportsResponse = await makeGraphRequest(reportsQuery, accessToken);
       const reports = (reportsResponse.value || []).filter((user: any) => user.accountEnabled !== false);
       
@@ -496,10 +499,25 @@ export function transformGraphUserToEmployee(graphUser: any, managerOverride?: s
     title: graphUser.jobTitle || 'No Title',
     department: graphUser.department || 'Unknown Department',
     email: graphUser.mail || graphUser.userPrincipalName || '',
-    phone: graphUser.businessPhones?.[0] || undefined,
+    phone: graphUser.mobilePhone || graphUser.businessPhones?.[0] || undefined,
     location: graphUser.officeLocation || undefined,
     avatar: undefined, // Microsoft Graph photos require separate API call
     managerId: finalManagerId,
+    
+    // Additional Microsoft Graph API fields
+    userPrincipalName: graphUser.userPrincipalName,
+    employeeId: graphUser.employeeId,
+    employeeType: graphUser.employeeType,
+    employeeHireDate: graphUser.employeeHireDate,
+    companyName: graphUser.companyName,
+    businessPhones: graphUser.businessPhones,
+    streetAddress: graphUser.streetAddress,
+    city: graphUser.city,
+    state: graphUser.state,
+    postalCode: graphUser.postalCode,
+    country: graphUser.country,
+    preferredLanguage: graphUser.preferredLanguage,
+    accountEnabled: graphUser.accountEnabled,
   };
 }
 

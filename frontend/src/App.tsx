@@ -460,6 +460,8 @@ function AppContent() {
           onUpdate={handleEmployeeUpdate}
           isSandboxMode={isSandboxMode}
           userRole={userRole}
+          employees={employees}
+          onEmployeeSelect={setSelectedEmployee}
         />
       )}
 
