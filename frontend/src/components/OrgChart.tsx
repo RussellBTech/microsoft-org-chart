@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { EmployeeNode } from './EmployeeNode';
 import { ZoomControls } from './ZoomControls';
 import type { Employee } from '../data/mockData';
@@ -16,6 +16,143 @@ interface OrgChartProps {
 
 type DisplayMode = 'horizontal' | 'vertical' | 'collapsed';
 
+interface NodePosition {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  centerX: number;
+}
+
+// Hook for measuring node positions and calculating dynamic line positions
+function useMeasureNodes() {
+  const [nodePositions, setNodePositions] = useState<Map<string, NodePosition>>(new Map());
+  const nodeRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  const registerNode = useCallback((id: string, element: HTMLDivElement | null) => {
+    if (element) {
+      nodeRefs.current.set(id, element);
+    } else {
+      nodeRefs.current.delete(id);
+    }
+  }, []);
+
+  const measureNodes = useCallback(() => {
+    const newPositions = new Map<string, NodePosition>();
+    
+    nodeRefs.current.forEach((element, id) => {
+      const rect = element.getBoundingClientRect();
+      const containerRect = element.closest('.org-chart-container')?.getBoundingClientRect();
+      
+      if (containerRect) {
+        const position: NodePosition = {
+          id,
+          x: rect.left - containerRect.left,
+          y: rect.top - containerRect.top,
+          width: rect.width,
+          height: rect.height,
+          centerX: (rect.left - containerRect.left) + rect.width / 2
+        };
+        newPositions.set(id, position);
+      }
+    });
+    
+    setNodePositions(newPositions);
+  }, []);
+
+  return {
+    nodePositions,
+    registerNode,
+    measureNodes
+  };
+}
+
+// Component for dynamic connection lines that adapt to actual node positions
+function DynamicConnectionLines({ 
+  parentId, 
+  childIds, 
+  nodePositions 
+}: { 
+  parentId: string; 
+  childIds: string[]; 
+  nodePositions: Map<string, NodePosition>; 
+}) {
+  if (childIds.length === 0) return null;
+
+  const parentPos = nodePositions.get(parentId);
+  const childPositions = childIds.map(id => nodePositions.get(id)).filter(Boolean) as NodePosition[];
+
+  if (!parentPos || childPositions.length === 0) {
+    return null;
+  }
+
+  if (childIds.length === 1) {
+    // Single child - simple vertical line
+    const childPos = childPositions[0];
+    return (
+      <>
+        <div 
+          className="absolute w-0.5 bg-gray-300 pointer-events-none"
+          style={{
+            left: parentPos.centerX - 1,
+            top: parentPos.y + parentPos.height,
+            height: childPos.y - (parentPos.y + parentPos.height)
+          }}
+        />
+      </>
+    );
+  }
+
+  // Multiple children - calculate dynamic horizontal span
+  const leftmostChild = childPositions.reduce((min, pos) => 
+    pos.centerX < min.centerX ? pos : min
+  );
+  const rightmostChild = childPositions.reduce((max, pos) => 
+    pos.centerX > max.centerX ? pos : max
+  );
+
+  const horizontalLineY = parentPos.y + parentPos.height + 6; // 6px gap to align with mt-3
+  const horizontalLineLeft = leftmostChild.centerX;
+  const horizontalLineWidth = rightmostChild.centerX - leftmostChild.centerX;
+
+  return (
+    <>
+      {/* Vertical line down from parent */}
+      <div 
+        className="absolute w-0.5 h-6 bg-gray-300 pointer-events-none"
+        style={{
+          left: parentPos.centerX - 1,
+          top: parentPos.y + parentPos.height
+        }}
+      />
+      
+      {/* Horizontal spanning line */}
+      <div 
+        className="absolute h-0.5 bg-gray-300 pointer-events-none"
+        style={{
+          left: horizontalLineLeft,
+          top: horizontalLineY,
+          width: Math.max(horizontalLineWidth, 4) // Minimum 4px width
+        }}
+      />
+      
+      {/* Vertical lines down to each child */}
+      {childPositions.map((childPos) => (
+        <div
+          key={childPos.id}
+          className="absolute w-0.5 bg-gray-300 pointer-events-none"
+          style={{
+            left: childPos.centerX - 1,
+            top: horizontalLineY,
+            height: childPos.y - horizontalLineY
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
 export function OrgChart({
   employees,
   searchTerm,
@@ -32,10 +169,18 @@ export function OrgChart({
     firstFewEmployees: employees.slice(0, 3).map(e => ({ id: e.id, name: e.name }))
   });
   const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [draggedEmployee, setDraggedEmployee] = useState<Employee | null>(null);
   const [nodeDisplayModes, setNodeDisplayModes] = useState<Map<string, DisplayMode>>(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Use the measurement hook for dynamic positioning
+  const { nodePositions, registerNode, measureNodes } = useMeasureNodes();
+
+  // Trigger measurement after layout changes
+  useEffect(() => {
+    const timeoutId = setTimeout(measureNodes, 100);
+    return () => clearTimeout(timeoutId);
+  }, [measureNodes, employees, nodeDisplayModes, searchTerm]);
 
   // Build hierarchy with improved data integrity for HR use
   const buildHierarchy = useCallback((employees: Employee[]) => {
@@ -47,7 +192,6 @@ export function OrgChart({
     const dataQualityIssues: string[] = [];
     
     // Track all employees to ensure none are lost
-    const allEmployeeIds = new Set(employees.map(emp => emp.id));
     const processedEmployees = new Set<string>();
 
     // First, build the children map and identify data quality issues
@@ -425,7 +569,10 @@ export function OrgChart({
     return (
       <div key={employee.id} className="flex flex-col items-center">
         {/* Employee Node */}
-        <div className="relative">
+        <div 
+          className="relative"
+          ref={(el) => registerNode(employee.id, el)}
+        >
           <EmployeeNode
             employee={employee}
             level={level}
@@ -447,81 +594,52 @@ export function OrgChart({
           />
         </div>
         
-        {/* Connection Lines and Children */}
+        {/* Children and Dynamic Connection Lines */}
         {hasChildren && !isCollapsed && children.length > 0 && (
-          <div className="flex flex-col items-center mt-1.5">
-            {/* Vertical line down from parent */}
-            <div className="w-0.5 h-1.5 bg-gray-300"></div>
-            
+          <div className="flex flex-col items-center mt-3">
             {shouldRenderVertically ? (
               /* Vertical layout for deepest level */
-              <div className="flex flex-col items-center gap-1 mt-1.5">
-                {children.map((child, index) => (
-                  <div key={child.id} className="flex flex-col items-center">
-                    {/* Vertical connector line */}
-                    {index === 0 && <div className="w-0.5 h-1 bg-gray-300"></div>}
-                    {index > 0 && <div className="w-0.5 h-1.5 bg-gray-300"></div>}
-                    
-                    {/* Employee node */}
-                    <div className="flex-shrink-0">
-                      <EmployeeNode
-                        employee={child}
-                        level={level + 1}
-                        hasChildren={false}
-                        displayMode={'horizontal'}
-                        isHighlighted={searchTerm && (
-                          child.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          child.title.toLowerCase().includes(searchTerm.toLowerCase())
-                        )}
-                        isCenterPerson={centerPersonId === child.id}
-                        wasMoved={movedEmployeeIds.has(child.id)}
-                        originalManagerId={baseEmployees.find(e => e.id === child.id)?.managerId}
-                        isDraggedOver={draggedEmployee?.id !== child.id}
-                        directReportsCount={childrenMap.get(child.id)?.length || 0}
-                        totalTeamSize={teamSizeMap.get(child.id) || 0}
-                        onSelect={onEmployeeSelect}
-                        onDragStart={handleDragStart}
-                        onDragEnd={handleDragEnd}
-                        onDrop={handleDrop}
-                        onToggleDisplayMode={toggleDisplayMode}
-                        isSandboxMode={isSandboxMode}
-                      />
-                    </div>
+              <div className="flex flex-col items-center gap-4">
+                {children.map((child) => (
+                  <div 
+                    key={child.id} 
+                    className="flex-shrink-0"
+                    ref={(el) => registerNode(child.id, el)}
+                  >
+                    <EmployeeNode
+                      employee={child}
+                      level={level + 1}
+                      hasChildren={false}
+                      displayMode={'horizontal'}
+                      isHighlighted={searchTerm && (
+                        child.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        child.title.toLowerCase().includes(searchTerm.toLowerCase())
+                      )}
+                      isCenterPerson={centerPersonId === child.id}
+                      wasMoved={movedEmployeeIds.has(child.id)}
+                      originalManagerId={baseEmployees.find(e => e.id === child.id)?.managerId}
+                      isDraggedOver={draggedEmployee?.id !== child.id}
+                      directReportsCount={childrenMap.get(child.id)?.length || 0}
+                      totalTeamSize={teamSizeMap.get(child.id) || 0}
+                      onSelect={onEmployeeSelect}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                      onDrop={handleDrop}
+                      onToggleDisplayMode={toggleDisplayMode}
+                      isSandboxMode={isSandboxMode}
+                    />
                   </div>
                 ))}
               </div>
             ) : (
               /* Horizontal layout for upper levels */
-              <>
-                {/* Horizontal line across children */}
-                {children.length > 1 && (
-                  <div className="relative">
-                    <div className="h-0.5 bg-gray-300" style={{ width: `${(children.length - 1) * 180 + 70}px` }}></div>
-                    {/* Vertical lines down to each child */}
-                    {children.map((_, index) => (
-                      <div
-                        key={index}
-                        className="absolute top-0 w-0.5 h-1.5 bg-gray-300"
-                        style={{ left: `${index * 180 + 35}px` }}
-                      ></div>
-                    ))}
+              <div className="flex items-start justify-center gap-6">
+                {children.map(child => (
+                  <div key={child.id} className="flex-shrink-0">
+                    {renderEmployeeTree(child, level + 1)}
                   </div>
-                )}
-                
-                {/* Single vertical line for single child */}
-                {children.length === 1 && (
-                  <div className="w-0.5 h-1.5 bg-gray-300"></div>
-                )}
-                
-                {/* Children nodes */}
-                <div className="flex items-start justify-center gap-3 mt-1.5">
-                  {children.map(child => (
-                    <div key={child.id} className="flex-shrink-0">
-                      {renderEmployeeTree(child, level + 1)}
-                    </div>
-                  ))}
-                </div>
-              </>
+                ))}
+              </div>
             )}
           </div>
         )}
@@ -537,19 +655,36 @@ export function OrgChart({
         onZoomOut={() => setZoom(z => Math.max(z - 0.1, 0.3))}
         onReset={() => {
           setZoom(1);
-          setPan({ x: 0, y: 0 });
         }}
       />
       
       <div
         ref={containerRef}
-        className="h-full overflow-auto p-6"
+        className="h-full overflow-auto p-6 org-chart-container"
         style={{
           transform: `scale(${zoom})`,
           transformOrigin: 'top left'
         }}
       >
-        <div className="flex flex-col items-center min-w-max">
+        {/* Dynamic Connection Lines Overlay */}
+        <div className="absolute inset-0 pointer-events-none">
+          {Array.from(childrenMap.entries()).map(([parentId, children]) => {
+            if (children.length === 0) return null;
+            const displayMode = nodeDisplayModes.get(parentId);
+            if (displayMode === 'collapsed') return null;
+            
+            return (
+              <DynamicConnectionLines
+                key={parentId}
+                parentId={parentId}
+                childIds={children.map(c => c.id)}
+                nodePositions={nodePositions}
+              />
+            );
+          })}
+        </div>
+        
+        <div className="flex flex-col items-center min-w-max relative">
           {/* Data Quality Indicators */}
           {dataQualityIssues.length > 0 && (
             <div className="mb-6 max-w-4xl">

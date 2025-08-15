@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, ChevronRight, User, Mail, Phone, MoreVertical, ArrowRightLeft, Users, AlertTriangle } from 'lucide-react';
+import { ChevronDown, ChevronRight, User, Mail, Phone, MoreVertical, ArrowRightLeft, Users } from 'lucide-react';
 import type { Employee } from '../data/mockData';
 import { getCardColorStyles, getColorHex } from './ColorPicker';
 
@@ -77,8 +77,6 @@ export function EmployeeNode({
     return colors[department as keyof typeof colors] || 'bg-gray-50 border-gray-200';
   };
 
-  // Calculate span of control warning
-  const hasSpanOfControlIssue = directReportsCount > 7; // Generally considered too many direct reports
   const isExecutiveLevel = level <= 1;
   const showTeamMetrics = hasChildren && (directReportsCount > 0 || totalTeamSize > 0);
 
@@ -137,12 +135,6 @@ export function EmployeeNode({
           </div>
         )}
         
-        {/* Span of control warning */}
-        {hasSpanOfControlIssue && (
-          <div className="bg-yellow-500 text-white rounded-full p-1 shadow-md z-20" title={`Too many direct reports (${directReportsCount}). Consider restructuring.`}>
-            <AlertTriangle className="h-3 w-3" />
-          </div>
-        )}
       </div>
       
       {hasChildren && (
@@ -217,11 +209,6 @@ export function EmployeeNode({
                     </div>
                   )}
                 </div>
-                {hasSpanOfControlIssue && (
-                  <div className="text-xs text-yellow-600 mt-1">
-                    Consider reducing span
-                  </div>
-                )}
               </div>
             )}
             
