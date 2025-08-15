@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, ChevronRight, User, Mail, Phone, MoreVertical, ArrowRightLeft } from 'lucide-react';
+import { ChevronDown, ChevronRight, User, Mail, Phone, MoreVertical, ArrowRightLeft, Users, AlertTriangle } from 'lucide-react';
 import type { Employee } from '../data/mockData';
 import { getCardColorStyles, getColorHex } from './ColorPicker';
 
@@ -15,6 +15,8 @@ interface EmployeeNodeProps {
   wasMoved?: boolean;
   originalManagerId?: string | null;
   isDraggedOver: boolean;
+  directReportsCount?: number;
+  totalTeamSize?: number;
   onSelect: (employee: Employee) => void;
   onDragStart: (employee: Employee) => void;
   onDragEnd: () => void;
@@ -33,6 +35,8 @@ export function EmployeeNode({
   wasMoved = false,
   originalManagerId,
   isDraggedOver,
+  directReportsCount = 0,
+  totalTeamSize = 0,
   onSelect,
   onDragStart,
   onDragEnd,
@@ -59,51 +63,64 @@ export function EmployeeNode({
     onDrop(employee);
   };
 
-  // Count total reports recursively
-  const countAllReports = (empId: string): number => {
-    // This would need access to the children map, but for now we'll use a placeholder
-    return 0; // Will be updated with actual count in parent component
+  // Department-based color coding
+  const getDepartmentColor = (department: string) => {
+    const colors = {
+      'Executive': 'bg-purple-50 border-purple-200',
+      'Technology': 'bg-blue-50 border-blue-200',
+      'Finance': 'bg-green-50 border-green-200',
+      'Sales': 'bg-orange-50 border-orange-200',
+      'Marketing': 'bg-pink-50 border-pink-200',
+      'Human Resources': 'bg-yellow-50 border-yellow-200',
+      'Product': 'bg-indigo-50 border-indigo-200'
+    };
+    return colors[department as keyof typeof colors] || 'bg-gray-50 border-gray-200';
   };
 
-  // Get color styles - custom color takes priority over moved state
+  // Calculate span of control warning
+  const hasSpanOfControlIssue = directReportsCount > 7; // Generally considered too many direct reports
+  const isExecutiveLevel = level <= 1;
+  const showTeamMetrics = hasChildren && (directReportsCount > 0 || totalTeamSize > 0);
+
+  // Get color styles - custom color takes priority, then department, then default
   const colorStyles = getCardColorStyles(employee.customColor);
+  const departmentColorClass = getDepartmentColor(employee.department);
   
   // Determine the card styling with proper priority:
   // 1. Center person (purple) - highest priority
   // 2. Highlighted/search (blue)
   // 3. Custom color (if set)
-  // 4. Moved indicator (orange) - shown as ring only if custom color exists
-  // 5. Default styling
+  // 4. Department color
+  // 5. Moved indicator (orange) - shown as ring only
+  // 6. Default styling
   
   const getCardClasses = () => {
+    let baseClass = `rounded-lg shadow-sm border p-4 w-64 transition-all duration-200 hover:shadow-md ${isSandboxMode ? 'cursor-move' : 'cursor-pointer'} relative`;
+    
     if (isCenterPerson) {
-      return 'ring-2 ring-purple-500 bg-purple-50 border-purple-300';
+      return `${baseClass} ring-2 ring-purple-500 bg-purple-50 border-purple-300`;
     }
     if (isHighlighted) {
-      return 'ring-2 ring-blue-500 bg-blue-50 border-blue-300';
+      return `${baseClass} ring-2 ring-blue-500 bg-blue-50 border-blue-300`;
     }
     if (employee.customColor) {
       // If moved AND has custom color, show custom color with orange ring
       if (wasMoved && isSandboxMode) {
-        return `${colorStyles.background} ${colorStyles.border} ring-2 ring-orange-400`;
+        return `${baseClass} ${colorStyles.background} ${colorStyles.border} ring-2 ring-orange-400`;
       }
-      return `${colorStyles.background} ${colorStyles.border} ${colorStyles.hover}`;
+      return `${baseClass} ${colorStyles.background} ${colorStyles.border} ${colorStyles.hover}`;
     }
     if (wasMoved && isSandboxMode) {
-      return 'ring-2 ring-orange-400 bg-orange-50 border-orange-300';
+      return `${baseClass} ring-2 ring-orange-400 ${departmentColorClass}`;
     }
-    return `${colorStyles.background} ${colorStyles.border} ${colorStyles.hover}`;
+    
+    // Use department colors for better visual organization
+    return `${baseClass} ${departmentColorClass} hover:shadow-lg`;
   };
   
   return (
     <div
-      className={`
-        rounded-lg shadow-sm border p-4 w-64
-        transition-all duration-200 hover:shadow-md
-        ${getCardClasses()}
-        ${isSandboxMode ? 'cursor-move' : 'cursor-pointer'}
-        relative
-      `}
+      className={getCardClasses()}
       draggable={isSandboxMode}
       onDragStart={handleDragStart}
       onDragEnd={onDragEnd}
@@ -111,12 +128,22 @@ export function EmployeeNode({
       onDrop={handleDrop}
       onClick={() => onSelect(employee)}
     >
-      {/* Moved indicator badge - always show if moved */}
-      {wasMoved && isSandboxMode && (
-        <div className="absolute -top-2 -right-2 bg-orange-500 text-white rounded-full p-1 shadow-md z-20" title="Employee has been reassigned">
-          <ArrowRightLeft className="h-3 w-3" />
-        </div>
-      )}
+      {/* Status indicators */}
+      <div className="absolute -top-2 -right-2 flex space-x-1">
+        {/* Moved indicator badge */}
+        {wasMoved && isSandboxMode && (
+          <div className="bg-orange-500 text-white rounded-full p-1 shadow-md z-20" title="Employee has been reassigned">
+            <ArrowRightLeft className="h-3 w-3" />
+          </div>
+        )}
+        
+        {/* Span of control warning */}
+        {hasSpanOfControlIssue && (
+          <div className="bg-yellow-500 text-white rounded-full p-1 shadow-md z-20" title={`Too many direct reports (${directReportsCount}). Consider restructuring.`}>
+            <AlertTriangle className="h-3 w-3" />
+          </div>
+        )}
+      </div>
       
       {hasChildren && (
         <button
@@ -175,6 +202,44 @@ export function EmployeeNode({
                 <span>{employee.phone}</span>
               </div>
             )}
+            
+            {/* Team metrics for managers */}
+            {showTeamMetrics && (
+              <div className="mt-2 pt-2 border-t border-gray-200">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center space-x-1 text-blue-600">
+                    <Users className="h-3 w-3" />
+                    <span>{directReportsCount} direct</span>
+                  </div>
+                  {totalTeamSize > directReportsCount && (
+                    <div className="text-gray-500">
+                      <span>{totalTeamSize} total team</span>
+                    </div>
+                  )}
+                </div>
+                {hasSpanOfControlIssue && (
+                  <div className="text-xs text-yellow-600 mt-1">
+                    Consider reducing span of control
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Department badge */}
+            <div className="mt-2">
+              <span className={`inline-block px-2 py-1 text-xs rounded-full ${
+                employee.department === 'Executive' ? 'bg-purple-100 text-purple-700' :
+                employee.department === 'Technology' ? 'bg-blue-100 text-blue-700' :
+                employee.department === 'Finance' ? 'bg-green-100 text-green-700' :
+                employee.department === 'Sales' ? 'bg-orange-100 text-orange-700' :
+                employee.department === 'Marketing' ? 'bg-pink-100 text-pink-700' :
+                employee.department === 'Human Resources' ? 'bg-yellow-100 text-yellow-700' :
+                employee.department === 'Product' ? 'bg-indigo-100 text-indigo-700' :
+                'bg-gray-100 text-gray-700'
+              }`}>
+                {employee.department}
+              </span>
+            </div>
           </div>
         </div>
       </div>

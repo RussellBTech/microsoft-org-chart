@@ -42,6 +42,7 @@ export function ViewModeSelector({
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [searchDebounceTimer, setSearchDebounceTimer] = useState<NodeJS.Timeout | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState(-1); // For keyboard navigation
 
   const handleModeChange = (mode: ViewMode) => {
     if (mode === 'my-view' && currentUser) {
@@ -64,6 +65,7 @@ export function ViewModeSelector({
 
   const handleSearchInput = useCallback((query: string) => {
     setSearchQuery(query);
+    setSelectedIndex(-1); // Reset selection when typing
     
     // Clear existing timer
     if (searchDebounceTimer) {
@@ -84,6 +86,7 @@ export function ViewModeSelector({
       try {
         const results = await onSearch(query);
         setSearchResults(results.slice(0, 10)); // Limit to 10 results
+        setSelectedIndex(-1); // Reset selection for new results
       } catch (error) {
         console.error('Search failed:', error);
         setSearchResults([]);
@@ -104,6 +107,43 @@ export function ViewModeSelector({
     });
     setSearchQuery(employee.name);
     setShowSearchDropdown(false);
+    setSelectedIndex(-1);
+  };
+
+  // Handle keyboard navigation in search dropdown
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showSearchDropdown || searchResults.length === 0) {
+      return;
+    }
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setSelectedIndex(prev => 
+          prev < searchResults.length - 1 ? prev + 1 : 0
+        );
+        break;
+      
+      case 'ArrowUp':
+        e.preventDefault();
+        setSelectedIndex(prev => 
+          prev > 0 ? prev - 1 : searchResults.length - 1
+        );
+        break;
+      
+      case 'Enter':
+        e.preventDefault();
+        if (selectedIndex >= 0 && selectedIndex < searchResults.length) {
+          handleSearchSelect(searchResults[selectedIndex]);
+        }
+        break;
+      
+      case 'Escape':
+        e.preventDefault();
+        setShowSearchDropdown(false);
+        setSelectedIndex(-1);
+        break;
+    }
   };
 
   // Sync search query with view config
@@ -150,6 +190,7 @@ export function ViewModeSelector({
               type="text"
               value={searchQuery}
               onChange={(e) => handleSearchInput(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
               placeholder="Search for anyone..."
               disabled={isLoading}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
@@ -163,13 +204,17 @@ export function ViewModeSelector({
             <div className="absolute top-full left-0 mt-2 w-full bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
               <div className="p-2">
                 <div className="text-xs font-semibold text-gray-500 uppercase px-3 py-2">
-                  People
+                  People (Use ↑↓ to navigate, Enter to select)
                 </div>
-                {searchResults.map(employee => (
+                {searchResults.map((employee, index) => (
                   <button
                     key={employee.id}
                     onClick={() => handleSearchSelect(employee)}
-                    className="w-full text-left px-3 py-2 rounded hover:bg-gray-50"
+                    className={`w-full text-left px-3 py-2 rounded transition-colors ${
+                      index === selectedIndex 
+                        ? 'bg-blue-100 text-blue-900' 
+                        : 'hover:bg-gray-50'
+                    }`}
                   >
                     <div className="font-medium">{employee.name}</div>
                     <div className="text-sm text-gray-500">

@@ -8,7 +8,7 @@ interface ScenarioPanelProps {
   onSave: (name: string, description: string) => void;
   onLoad: (scenario: Scenario) => void;
   onDelete: (id: string) => void;
-  isSandboxMode: boolean;
+  isInPlanningMode: boolean;
 }
 
 export function ScenarioPanel({
@@ -17,7 +17,7 @@ export function ScenarioPanel({
   onSave,
   onLoad,
   onDelete,
-  isSandboxMode
+  isInPlanningMode
 }: ScenarioPanelProps) {
   const [showSaveForm, setShowSaveForm] = useState(false);
   const [scenarioName, setScenarioName] = useState('');
@@ -46,7 +46,7 @@ export function ScenarioPanel({
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
-          {isSandboxMode && (
+          {isInPlanningMode && (
             <div className="mb-6">
               {!showSaveForm ? (
                 <button
@@ -54,13 +54,13 @@ export function ScenarioPanel({
                   className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors"
                 >
                   <Plus className="h-4 w-4" />
-                  <span>Save Current Scenario</span>
+                  <span>Save Current Plan</span>
                 </button>
               ) : (
                 <div className="bg-gray-50 rounded-lg p-4 space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Scenario Name *
+                      Plan Name *
                     </label>
                     <input
                       type="text"
@@ -107,14 +107,14 @@ export function ScenarioPanel({
 
           <div className="space-y-4">
             <h3 className="text-lg font-medium text-gray-900">
-              Saved Scenarios ({scenarios.length})
+              Saved Plans ({scenarios.length})
             </h3>
             
             {scenarios.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 <Save className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>No scenarios saved yet.</p>
-                <p className="text-sm">Enter sandbox mode to create and save scenarios.</p>
+                <p>No plans saved yet.</p>
+                <p className="text-sm">Enter planning mode to create and save organizational plans.</p>
               </div>
             ) : (
               <div className="grid gap-4">

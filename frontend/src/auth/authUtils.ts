@@ -132,6 +132,91 @@ export async function fetchAllUsers(accessToken: string) {
 }
 
 /**
+ * Fetch a user and their complete team hierarchy on-demand
+ * This is more efficient than loading all users - only gets what we need
+ */
+export async function fetchUserTeamRecursively(accessToken: string, userId: string, maxDepth: number = 10): Promise<any> {
+  console.log(`🔄 Fetching team hierarchy for user ${userId} (max depth: ${maxDepth})`);
+  
+  // Get the user's basic info
+  const userQuery = `/users/${userId}?$select=id,displayName,jobTitle,department,mail,userPrincipalName,accountEnabled`;
+  const user = await makeGraphRequest(userQuery, accessToken);
+  
+  if (user.accountEnabled === false) {
+    console.warn(`User ${userId} is not active/enabled`);
+    return null;
+  }
+  
+  // Recursive function to fetch all direct reports with their teams
+  async function fetchReportsRecursively(managerId: string, depth: number): Promise<any[]> {
+    if (depth >= maxDepth) {
+      console.log(`📊 Reached max depth ${maxDepth} for user ${managerId}`);
+      return [];
+    }
+    
+    try {
+      const reportsQuery = `/users/${managerId}/directReports?$select=id,displayName,jobTitle,department,mail,accountEnabled`;
+      const reportsResponse = await makeGraphRequest(reportsQuery, accessToken);
+      const reports = (reportsResponse.value || []).filter((user: any) => user.accountEnabled !== false);
+      
+      if (reports.length > 0) {
+        console.log(`📊 Found ${reports.length} reports at depth ${depth} for user ${managerId}`);
+      }
+      
+      // Fetch next level for each report
+      const expandedReports = await Promise.all(
+        reports.map(async (report: any) => ({
+          ...report,
+          directReports: await fetchReportsRecursively(report.id, depth + 1)
+        }))
+      );
+      
+      return expandedReports;
+    } catch (error) {
+      console.log(`Could not fetch reports for user ${managerId} at depth ${depth}:`, error);
+      return [];
+    }
+  }
+  
+  // Get the user's complete team hierarchy
+  const directReports = await fetchReportsRecursively(user.id, 0);
+  
+  const result = {
+    ...user,
+    directReports
+  };
+  
+  console.log(`✅ Fetched complete team for ${user.displayName}: ${JSON.stringify(result, null, 2).length} chars of data`);
+  return result;
+}
+
+/**
+ * Build team context from recursive directReports data
+ * This works with the new on-demand fetching approach
+ */
+export function buildTeamContextFromDirectReports(userWithTeam: any): any[] {
+  const employees: any[] = [];
+  
+  // Recursive function to flatten the directReports structure
+  function addUserAndReports(user: any, managerId: string | null = null) {
+    const employee = transformGraphUserToEmployee(user, managerId);
+    employees.push(employee);
+    
+    // Process their direct reports
+    if (user.directReports && Array.isArray(user.directReports)) {
+      user.directReports.forEach((report: any) => {
+        addUserAndReports(report, user.id);
+      });
+    }
+  }
+  
+  addUserAndReports(userWithTeam);
+  
+  console.log(`🎯 Built team context: ${employees.length} employees from ${userWithTeam.displayName}'s hierarchy`);
+  return employees;
+}
+
+/**
  * Fetch current user with their organizational context
  */
 export async function fetchMyOrgContext(accessToken: string) {
@@ -419,7 +504,66 @@ export function transformGraphUserToEmployee(graphUser: any, managerOverride?: s
 }
 
 /**
+ * Build team-focused organizational context (person + all levels of reports only)
+ * This is used for search and navigation to show downward org structure
+ */
+export function buildTeamFocusedContext(
+  centerUser: any,
+  directReports: any[]
+): any[] {
+  const contextEmployees: any[] = [];
+  const employeeIdMap = new Set<string>();
+  
+  // Add center user (remove manager reference for team-focused view)
+  const centerUserEmployee = transformGraphUserToEmployee(centerUser, null);
+  contextEmployees.push(centerUserEmployee);
+  employeeIdMap.add(centerUserEmployee.id);
+  
+  console.log(`🔧 Building team context for ${centerUser.displayName}:`, {
+    centerUserId: centerUser.id,
+    directReportsCount: directReports.length,
+    centerUserOriginalManager: centerUser.manager?.id || 'none'
+  });
+  
+  // Recursive function to add all reports at any depth
+  function addEmployeeAndReports(employee: any, managerId: string, depth: number = 0) {
+    // Only set managerId if we're sure the manager is in our context
+    const finalManagerId = employeeIdMap.has(managerId) ? managerId : null;
+    
+    const emp = transformGraphUserToEmployee(employee, finalManagerId);
+    contextEmployees.push(emp);
+    employeeIdMap.add(emp.id);
+    
+    console.log(`  ${'  '.repeat(depth)}Adding ${employee.displayName} (managerId: ${finalManagerId || 'none'})`);
+    
+    // Add their direct reports recursively (ALL levels)
+    if (employee.directReports && Array.isArray(employee.directReports)) {
+      employee.directReports.forEach((report: any) => {
+        addEmployeeAndReports(report, employee.id, depth + 1);
+      });
+    }
+  }
+  
+  // Add all direct reports and their full teams recursively
+  directReports.forEach(report => {
+    addEmployeeAndReports(report, centerUserEmployee.id, 1);
+  });
+  
+  // Remove duplicates (in case of any overlap)
+  const uniqueEmployees = Array.from(
+    new Map(contextEmployees.map(emp => [emp.id, emp])).values()
+  );
+  
+  console.log(`🎯 Team-focused context for ${centerUser.displayName}: ${uniqueEmployees.length} people total`, {
+    employeeIds: uniqueEmployees.map(emp => ({ id: emp.id, name: emp.name, managerId: emp.managerId }))
+  });
+  
+  return uniqueEmployees;
+}
+
+/**
  * Build organizational context employees with correct manager relationships
+ * (Original function - includes manager/peer context)
  */
 export function buildOrgContextEmployees(
   currentUser: any,

@@ -5,10 +5,14 @@ import { ViewMode } from '../components/ViewModeSelector';
 import { 
   fetchAllUsers,
   fetchMyOrgContext,
+  fetchUserTeamRecursively,
+  buildTeamContextFromDirectReports,
+  makeGraphRequest,
   searchUsers,
   fetchUserOrgContext,
   transformGraphUserToEmployee,
   buildOrgContextEmployees,
+  buildTeamFocusedContext,
   retryApiCall,
   getApiErrorMessage,
   isAuthError
@@ -83,6 +87,7 @@ interface OrgState {
   setLoadingState: (isLoading: boolean, type?: LoadingType) => void;
   setDataError: (error: string | null) => void;
   setDataSource: (source: DataSource) => void;
+  resetMockDataFlag: () => void;
   
   // Data loading methods
   loadCompleteOrgData: (getGraphToken: () => Promise<string | null>, isAuthenticated: boolean) => Promise<void>;
@@ -249,6 +254,7 @@ export const useOrgStore = create<OrgState>()(
       }),
       setDataError: (error) => set({ dataError: error }),
       setDataSource: (source) => set({ dataSource: source }),
+      resetMockDataFlag: () => set({ useMockData: false, employees: [], allEmployees: [] }),
       
       // Data loading methods
       loadCompleteOrgData: async (getGraphToken, isAuthenticated) => {
@@ -267,80 +273,41 @@ export const useOrgStore = create<OrgState>()(
             throw new Error('Unable to acquire access token. Please sign in again.');
           }
           
-          console.log('🔄 Loading complete organization data...');
+          console.log('🔄 Loading current user and their team hierarchy on-demand...');
           
-          // Load complete org data instead of just user context
-          const [myContext, allUsers] = await Promise.all([
-            retryApiCall(() => fetchMyOrgContext(accessToken)),
-            fetchAllUsers(accessToken)
-          ]);
+          // Get current user info first
+          const meQuery = '/me?$select=id,displayName,jobTitle,department,mail,userPrincipalName,accountEnabled';
+          const currentUser = await retryApiCall(() => makeGraphRequest(meQuery, accessToken));
           
-          console.log('📊 Complete org data loaded:', {
-            userContextSize: myContext ? 1 : 0,
-            totalUsers: allUsers.length
-          });
-          
-          // Transform all users to employees
-          const allEmployees = allUsers.map(transformGraphUserToEmployee);
-          
-          // Debug: Check manager relationships in transformed data
-          const employeesWithManagers = allEmployees.filter(emp => emp.managerId);
-          const employeesWithoutManagers = allEmployees.filter(emp => !emp.managerId);
-          
-          console.log('🔍 Manager relationship analysis after transformation:', {
-            totalEmployees: allEmployees.length,
-            withManagers: employeesWithManagers.length,
-            withoutManagers: employeesWithoutManagers.length,
-            sampleWithManager: employeesWithManagers.slice(0, 3).map(emp => ({
-              name: emp.name,
-              managerId: emp.managerId
-            })),
-            sampleWithoutManager: employeesWithoutManagers.slice(0, 3).map(emp => ({
-              name: emp.name,
-              managerId: emp.managerId
-            }))
-          });
-          
-          // Debug: Check raw Graph data structure for first few users
-          console.log('🔍 Raw Graph data sample:', {
-            sampleUsers: allUsers.slice(0, 3).map(user => ({
-              displayName: user.displayName,
-              manager: user.manager,
-              hasManagerProperty: 'manager' in user,
-              managerType: typeof user.manager
-            }))
-          });
-          
-          // Build user context for initial view
-          const contextEmployees = buildOrgContextEmployees(
-            myContext.currentUser,
-            myContext.manager,
-            myContext.grandManager,
-            myContext.peers,
-            myContext.directReports
+          // Fetch the current user's complete team hierarchy
+          const userWithTeam = await retryApiCall(() => 
+            fetchUserTeamRecursively(accessToken, currentUser.id)
           );
+          
+          if (!userWithTeam) {
+            throw new Error('Unable to load user team data');
+          }
+          
+          // Build flat employee list from the hierarchical data
+          const teamEmployees = buildTeamContextFromDirectReports(userWithTeam);
           
           // Set current user
-          const currentUserEmployee = allEmployees.find(emp => emp.id === myContext.currentUser.id);
+          const currentUserEmployee = teamEmployees.find(emp => emp.id === currentUser.id);
           
-          // Remove duplicates from context
-          const uniqueContextEmployees = Array.from(
-            new Map(contextEmployees.map(emp => [emp.id, emp])).values()
-          );
+          console.log(`✅ On-demand team loaded: ${teamEmployees.length} employees in ${currentUser.displayName}'s hierarchy`);
           
           set({
-            employees: uniqueContextEmployees,
-            baseEmployees: uniqueContextEmployees,
-            allEmployees,
+            employees: teamEmployees,
+            baseEmployees: teamEmployees,
+            allEmployees: teamEmployees, // Start with current team, expand on search
             currentUser: currentUserEmployee || null,
             dataSource: 'graph',
-            backgroundDataLoaded: true
+            backgroundDataLoaded: true,
+            useMockData: false // Reset mock data flag when Graph data loads successfully
           });
           
-          console.log(`✅ Complete org loaded: ${allEmployees.length} total, ${uniqueContextEmployees.length} in initial view`);
-          
         } catch (error) {
-          console.error('Failed to load org data:', error);
+          console.error('Failed to load team data:', error);
           const errorMessage = getApiErrorMessage(error);
           set({ dataError: errorMessage });
           
@@ -372,42 +339,32 @@ export const useOrgStore = create<OrgState>()(
       },
       
       searchEmployees: async (query, getGraphToken, isAuthenticated) => {
-        const { allEmployees, useMockData, backgroundDataLoaded } = get();
+        const { allEmployees, useMockData } = get();
         const normalizedQuery = query.toLowerCase();
         
-        // Local search
-        const localResults = allEmployees.filter(emp =>
-          emp.name.toLowerCase().includes(normalizedQuery) ||
-          emp.title.toLowerCase().includes(normalizedQuery)
-        );
-        
         if (!isAuthenticated || useMockData) {
-          return localResults.slice(0, 20);
-        }
-        
-        if (backgroundDataLoaded && localResults.length >= 3) {
-          console.log(`🔍 Using local search: ${localResults.length} results`);
+          // Mock data search
+          const localResults = allEmployees.filter(emp =>
+            emp.name.toLowerCase().includes(normalizedQuery) ||
+            emp.title.toLowerCase().includes(normalizedQuery)
+          );
           return localResults.slice(0, 20);
         }
         
         try {
-          console.log(`🔍 Using Graph API search for "${query}"`);
+          console.log(`🔍 Direct Graph API search for "${query}"`);
           const accessToken = await getGraphToken();
-          if (!accessToken) return localResults.slice(0, 20);
+          if (!accessToken) return [];
           
+          // Search directly in Graph API - no dependency on allEmployees
           const graphResults = await searchUsers(accessToken, query);
           const transformedResults = graphResults.map(transformGraphUserToEmployee);
           
-          // Merge and deduplicate
-          const combined = [...localResults, ...transformedResults];
-          const unique = Array.from(
-            new Map(combined.map(emp => [emp.id, emp])).values()
-          );
-          
-          return unique.slice(0, 20);
+          console.log(`✅ Graph search found ${transformedResults.length} results`);
+          return transformedResults.slice(0, 20);
         } catch (error) {
-          console.warn('Graph API search failed, using local results:', error);
-          return localResults.slice(0, 20);
+          console.warn('Graph API search failed:', error);
+          return [];
         }
       },
       
@@ -426,16 +383,21 @@ export const useOrgStore = create<OrgState>()(
             const contextIds = new Set<string>();
             contextIds.add(currentUser.id);
             
-            if (currentUser.managerId) {
-              const manager = allEmployees.find(e => e.id === currentUser.managerId);
-              if (manager) {
-                contextIds.add(manager.id);
-                allEmployees.filter(e => e.managerId === currentUser.managerId).forEach(e => contextIds.add(e.id));
-              }
-            }
+            // Team-focused: show current user + ALL levels of their reports
+            const addAllReports = (managerId: string) => {
+              const directReports = allEmployees.filter(e => e.managerId === managerId);
+              directReports.forEach(report => {
+                contextIds.add(report.id);
+                // Recursively add their reports (all levels)
+                addAllReports(report.id);
+              });
+            };
             
-            allEmployees.filter(e => e.managerId === currentUser.id).forEach(e => contextIds.add(e.id));
+            // Add all reports recursively
+            addAllReports(currentUser.id);
+            
             const contextEmployees = allEmployees.filter(e => contextIds.has(e.id));
+            console.log(`🏠 My team view for ${currentUser.name}: ${contextEmployees.length} people (you + ${contextEmployees.length - 1} reports)`);
             
             set({
               employees: contextEmployees,
@@ -445,31 +407,36 @@ export const useOrgStore = create<OrgState>()(
           } else if (newConfig.mode === 'search' && newConfig.centerPersonId) {
             const centerPerson = allEmployees.find(e => e.id === newConfig.centerPersonId);
             if (centerPerson) {
+              console.log(`🔧 Mock team context for ${centerPerson.name}:`, {
+                centerPersonId: centerPerson.id,
+                allEmployeesCount: allEmployees.length,
+                centerPersonManager: centerPerson.managerId || 'none'
+              });
+              
               const contextIds = new Set<string>();
               contextIds.add(centerPerson.id);
               
-              // Build context around center person
-              if (centerPerson.managerId) {
-                const manager = allEmployees.find(e => e.id === centerPerson.managerId);
-                if (manager) {
-                  contextIds.add(manager.id);
-                  if (manager.managerId) {
-                    const grandManager = allEmployees.find(e => e.id === manager.managerId);
-                    if (grandManager) contextIds.add(grandManager.id);
-                  }
-                  allEmployees.filter(e => e.managerId === centerPerson.managerId).forEach(e => contextIds.add(e.id));
-                }
-              }
-              
-              // Add direct reports (2 levels)
-              allEmployees.filter(e => e.managerId === centerPerson.id).forEach(report => {
-                contextIds.add(report.id);
-                allEmployees.filter(e => e.managerId === report.id).forEach(subReport => {
-                  contextIds.add(subReport.id);
+              // Team-focused downward context: person + ALL levels of their reports
+              // Recursive function to add all reports at any depth
+              const addAllReports = (managerId: string, depth: number = 0) => {
+                const directReports = allEmployees.filter(e => e.managerId === managerId);
+                console.log(`  ${'  '.repeat(depth)}Manager ${managerId} has ${directReports.length} reports`);
+                directReports.forEach(report => {
+                  contextIds.add(report.id);
+                  console.log(`  ${'  '.repeat(depth + 1)}Adding ${report.name} (id: ${report.id})`);
+                  // Recursively add their reports (all levels)
+                  addAllReports(report.id, depth + 1);
                 });
-              });
+              };
+              
+              // Add all reports recursively (CEO can navigate down to any employee)
+              addAllReports(centerPerson.id);
               
               const contextEmployees = allEmployees.filter(e => contextIds.has(e.id));
+              console.log(`🎯 Team-focused view for ${centerPerson.name}: ${contextEmployees.length} people (person + ${contextEmployees.length - 1} reports)`, {
+                employeeIds: contextEmployees.map(emp => ({ id: emp.id, name: emp.name, managerId: emp.managerId }))
+              });
+              
               set({
                 employees: contextEmployees,
                 baseEmployees: contextEmployees,
@@ -491,23 +458,23 @@ export const useOrgStore = create<OrgState>()(
           
           if (newConfig.mode === 'search' && newConfig.centerPersonId) {
             try {
-              const userContext = await fetchUserOrgContext(accessToken, newConfig.centerPersonId);
+              console.log(`🔄 On-demand loading team for search: ${newConfig.centerPersonId}`);
               
-              const contextEmployees = buildOrgContextEmployees(
-                userContext.user,
-                userContext.manager,
-                userContext.grandManager,
-                userContext.peers,
-                userContext.directReports
-              );
+              // Fetch the user's complete team hierarchy on-demand
+              const userWithTeam = await fetchUserTeamRecursively(accessToken, newConfig.centerPersonId);
               
-              const uniqueEmployees = Array.from(
-                new Map(contextEmployees.map(emp => [emp.id, emp])).values()
-              );
+              if (!userWithTeam) {
+                throw new Error(`User ${newConfig.centerPersonId} not found or inactive`);
+              }
+              
+              // Build flat employee list from the hierarchical data
+              const teamEmployees = buildTeamContextFromDirectReports(userWithTeam);
+              
+              console.log(`✅ On-demand search loaded: ${teamEmployees.length} employees in ${userWithTeam.displayName}'s team`);
               
               set({
-                employees: uniqueEmployees,
-                baseEmployees: uniqueEmployees,
+                employees: teamEmployees,
+                baseEmployees: teamEmployees,
                 viewConfig: newConfig
               });
             } catch (error) {
@@ -534,8 +501,8 @@ export const useOrgStore = create<OrgState>()(
       name: 'org-chart-storage',
       partialize: (state) => ({ 
         scenarios: state.scenarios,
-        userRole: state.userRole,
-        useMockData: state.useMockData
+        userRole: state.userRole
+        // Note: useMockData is NOT persisted - should reset each session
       })
     }
   )

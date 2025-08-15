@@ -3,8 +3,8 @@ import { Settings, Download, RotateCcw, Save, Users, AlertTriangle, LogIn, LogOu
 import type { Scenario } from '../data/mockData';
 
 interface HeaderProps {
-  isSandboxMode: boolean;
-  onToggleSandbox: (enabled: boolean) => void;
+  isInPlanningMode: boolean;
+  onTogglePlanningMode: () => void;
   onShowScenarios: () => void;
   onShowExport: () => void;
   onResetToLive: () => void;
@@ -21,8 +21,8 @@ interface HeaderProps {
 }
 
 export function Header({
-  isSandboxMode,
-  onToggleSandbox,
+  isInPlanningMode,
+  onTogglePlanningMode,
   onShowScenarios,
   onShowExport,
   onResetToLive,
@@ -56,10 +56,10 @@ export function Header({
         </div>
 
         <div className="flex items-center space-x-4">
-          {isSandboxMode && (
-            <div className="flex items-center space-x-2 px-3 py-1 bg-orange-50 rounded-full">
-              <AlertTriangle className="h-4 w-4 text-orange-600" />
-              <span className="text-sm text-orange-700 font-medium">Sandbox Mode</span>
+          {isInPlanningMode && (
+            <div className="flex items-center space-x-2 px-3 py-1 bg-blue-50 rounded-full">
+              <AlertTriangle className="h-4 w-4 text-blue-600" />
+              <span className="text-sm text-blue-700 font-medium">Planning Mode</span>
             </div>
           )}
           
@@ -67,30 +67,30 @@ export function Header({
             {canEdit && (
               <>
                 <button
-                  onClick={() => onToggleSandbox(!isSandboxMode)}
+                  onClick={onTogglePlanningMode}
                   className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                    isSandboxMode
-                      ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-                      : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                    isInPlanningMode
+                      ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                      : 'bg-green-100 text-green-700 hover:bg-green-200'
                   }`}
                 >
-                  {isSandboxMode ? 'Exit Sandbox' : 'Enter Sandbox'}
+                  {isInPlanningMode ? 'Exit Planning' : 'Start Planning'}
                 </button>
                 
-                {isSandboxMode ? (
+                {isInPlanningMode ? (
                   <>
                     <button
                       onClick={onQuickSave}
                       className="flex items-center space-x-2 px-4 py-2 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg transition-colors font-medium"
                     >
                       <Save className="h-4 w-4" />
-                      <span>Save Scenario</span>
+                      <span>Save Plan</span>
                     </button>
                     <button
                       onClick={onShowScenarios}
                       className="flex items-center space-x-2 px-4 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
                     >
-                      <span>Manage Scenarios</span>
+                      <span>Manage Plans</span>
                     </button>
                   </>
                 ) : (
@@ -99,7 +99,7 @@ export function Header({
                     className="flex items-center space-x-2 px-4 py-2 text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
                   >
                     <Save className="h-4 w-4" />
-                    <span>Scenarios</span>
+                    <span>Plans</span>
                   </button>
                 )}
               </>
@@ -147,7 +147,7 @@ export function Header({
               </button>
             )}
             
-            {isSandboxMode && canEdit && (
+            {isInPlanningMode && canEdit && (
               <button
                 onClick={onResetToLive}
                 className="flex items-center space-x-2 px-4 py-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
