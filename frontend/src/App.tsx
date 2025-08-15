@@ -118,6 +118,20 @@ function AppContent() {
   }, [status, hasValidConfig, useMockData, employees.length, loadGraphData, loadMockData]);
 
   /**
+   * Handle context reload when exiting sandbox mode
+   */
+  useEffect(() => {
+    // Reload data when backgroundDataLoaded flag is reset (happens when exiting sandbox mode)
+    if (!backgroundDataLoaded && employees.length > 0) {
+      if (useMockData) {
+        loadMockData();
+      } else if (AuthStatusHelper.isAuthenticated(status) && hasValidConfig) {
+        loadGraphData();
+      }
+    }
+  }, [backgroundDataLoaded, employees.length, useMockData, status, hasValidConfig, loadGraphData, loadMockData]);
+
+  /**
    * Handle authentication-related actions
    */
   const handleLogin = async () => {

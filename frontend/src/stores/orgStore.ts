@@ -140,7 +140,20 @@ export const useOrgStore = create<OrgState>()(
           // Should trigger confirmation dialog in UI
           return;
         }
+        
+        const wasInSandboxMode = isSandboxMode;
         set({ isSandboxMode: !isSandboxMode });
+        
+        // If we're exiting sandbox mode, trigger a context reload and clear changes
+        if (wasInSandboxMode) {
+          set({ 
+            dataError: null,
+            backgroundDataLoaded: false, // This will trigger a reload in App.tsx
+            sandboxChanges: new Map(),
+            reassignedEmployeeIds: new Set(),
+            hasUnsavedChanges: false
+          });
+        }
       },
       
       updateEmployee: (updatedEmployee) => {

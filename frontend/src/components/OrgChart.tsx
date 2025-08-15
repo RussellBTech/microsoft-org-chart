@@ -200,6 +200,11 @@ export function OrgChart({
     return () => window.removeEventListener('resize', handleResize);
   }, [measureNodes]);
 
+  // Trigger remeasurement after data reload (like when exiting sandbox mode)
+  useEffect(() => {
+    setTimeout(measureNodes, 200); // Longer delay for data reload
+  }, [measureNodes, employees]);
+
   // Build hierarchy with improved data integrity for HR use
   const buildHierarchy = useCallback((employees: Employee[]) => {
     const employeeMap = new Map(employees.map(emp => [emp.id, emp]));
