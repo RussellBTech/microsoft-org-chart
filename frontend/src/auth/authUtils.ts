@@ -68,12 +68,29 @@ export async function fetchAllUsers(accessToken: string) {
   // Filter for only enabled accounts with manager expansion and ConsistencyLevel header
   let nextUrl: string | null = `${GRAPH_ENDPOINTS.USERS}?$filter=accountEnabled eq true&$select=id,displayName,jobTitle,department,mail,userPrincipalName,employeeId,accountEnabled&$expand=manager($select=id,displayName)`;
   
+  console.log('🔄 Starting Graph API call with URL:', nextUrl);
+  
   while (nextUrl) {
     const response = await makeGraphRequest(nextUrl, accessToken, {
       headers: {
         'ConsistencyLevel': 'eventual' // Required for some expand operations
       }
     });
+    
+    // Debug: Check the raw response structure
+    if (response.value && response.value.length > 0) {
+      console.log('📊 Raw Graph API response sample:', {
+        totalInBatch: response.value.length,
+        firstUser: response.value[0],
+        hasNextLink: !!response['@odata.nextLink'],
+        sampleManagerData: response.value.slice(0, 3).map((user: any) => ({
+          name: user.displayName,
+          hasManager: !!user.manager,
+          managerStructure: user.manager ? Object.keys(user.manager) : 'no manager',
+          managerId: user.manager?.id || 'no id'
+        }))
+      });
+    }
     
     if (response.value) {
       // Double-check accountEnabled in case the filter didn't work
@@ -90,7 +107,27 @@ export async function fetchAllUsers(accessToken: string) {
     }
   }
   
-  console.log(`Fetched ${users.length} active users with manager relationships`);
+  // Final analysis of manager relationships in the fetched data
+  const usersWithManagers = users.filter(user => user.manager?.id);
+  const usersWithoutManagers = users.filter(user => !user.manager?.id);
+  
+  console.log(`📈 Final Graph API data analysis:`, {
+    totalUsers: users.length,
+    usersWithManagers: usersWithManagers.length,
+    usersWithoutManagers: usersWithoutManagers.length,
+    managerPercentage: ((usersWithManagers.length / users.length) * 100).toFixed(1) + '%',
+    sampleWithManager: usersWithManagers.slice(0, 3).map(user => ({
+      name: user.displayName,
+      managerId: user.manager.id,
+      managerName: user.manager.displayName
+    })),
+    sampleWithoutManager: usersWithoutManagers.slice(0, 3).map(user => ({
+      name: user.displayName,
+      hasManagerProperty: 'manager' in user,
+      managerValue: user.manager
+    }))
+  });
+  
   return users;
 }
 
@@ -356,13 +393,15 @@ export async function fetchCurrentUser(accessToken: string) {
 export function transformGraphUserToEmployee(graphUser: any, managerOverride?: string | null): any {
   const finalManagerId = managerOverride !== undefined ? managerOverride : (graphUser.manager?.id || null);
   
-  // Debug logging to track manager ID transformation
-  if (graphUser.manager?.id && typeof graphUser.manager.id !== 'string') {
-    console.warn(`⚠️ Manager ID is not a string for ${graphUser.displayName}:`, {
-      managerId: graphUser.manager.id,
-      managerIdType: typeof graphUser.manager.id,
+  // Debug logging for first few transformations to track manager ID issues
+  if (Math.random() < 0.1) { // Log 10% of transformations to avoid spam
+    console.log(`🔧 Transform ${graphUser.displayName}:`, {
+      rawManager: graphUser.manager,
+      extractedManagerId: graphUser.manager?.id,
       managerOverride,
-      finalManagerId
+      finalManagerId,
+      hasManagerProperty: 'manager' in graphUser,
+      managerKeys: graphUser.manager ? Object.keys(graphUser.manager) : 'no manager'
     });
   }
   
