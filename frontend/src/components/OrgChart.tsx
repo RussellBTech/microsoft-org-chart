@@ -182,6 +182,24 @@ export function OrgChart({
     return () => clearTimeout(timeoutId);
   }, [measureNodes, employees, nodeDisplayModes, searchTerm]);
 
+  // Additional trigger for sandbox mode changes (employee reassignments)
+  useEffect(() => {
+    if (isSandboxMode) {
+      const timeoutId = setTimeout(measureNodes, 150); // Slightly longer delay for DOM updates
+      return () => clearTimeout(timeoutId);
+    }
+  }, [measureNodes, movedEmployeeIds, isSandboxMode]);
+
+  // Handle window resize events that could affect node positioning
+  useEffect(() => {
+    const handleResize = () => {
+      setTimeout(measureNodes, 100);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [measureNodes]);
+
   // Build hierarchy with improved data integrity for HR use
   const buildHierarchy = useCallback((employees: Employee[]) => {
     const employeeMap = new Map(employees.map(emp => [emp.id, emp]));
@@ -475,6 +493,8 @@ export function OrgChart({
 
   const handleDragEnd = () => {
     setDraggedEmployee(null);
+    // Trigger line recalculation after drag ends
+    setTimeout(measureNodes, 200);
   };
 
   const handleDrop = (targetEmployee: Employee) => {
@@ -489,6 +509,9 @@ export function OrgChart({
     
     onEmployeeReassign(draggedEmployee.id, targetEmployee.id);
     setDraggedEmployee(null);
+    
+    // Trigger line recalculation after organizational change
+    setTimeout(measureNodes, 250);
   };
 
   const toggleDisplayMode = (employeeId: string) => {
@@ -533,6 +556,10 @@ export function OrgChart({
       }
       
       newMap.set(employeeId, nextMode);
+      
+      // Trigger line recalculation after display mode change
+      setTimeout(measureNodes, 100);
+      
       return newMap;
     });
   };
