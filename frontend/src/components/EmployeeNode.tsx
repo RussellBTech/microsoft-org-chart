@@ -1,7 +1,8 @@
 import React from 'react';
 import { ChevronDown, ChevronRight, User, Mail, Phone, MoreVertical, ArrowRightLeft, Users } from 'lucide-react';
 import type { Employee } from '../data/mockData';
-import { getCardColorStyles, getColorHex } from './ColorPicker';
+import { getCardColorStyles } from './ColorPicker';
+import { QuickColorPicker } from './QuickColorPicker';
 
 type DisplayMode = 'horizontal' | 'vertical' | 'collapsed';
 
@@ -22,6 +23,7 @@ interface EmployeeNodeProps {
   onDragEnd: () => void;
   onDrop: (employee: Employee) => void;
   onToggleDisplayMode: (employeeId: string) => void;
+  onColorChange?: (employeeId: string, color: string | undefined) => void;
   isSandboxMode: boolean;
 }
 
@@ -33,8 +35,6 @@ export function EmployeeNode({
   isHighlighted,
   isCenterPerson,
   wasMoved = false,
-  originalManagerId,
-  isDraggedOver,
   directReportsCount = 0,
   totalTeamSize = 0,
   onSelect,
@@ -42,6 +42,7 @@ export function EmployeeNode({
   onDragEnd,
   onDrop,
   onToggleDisplayMode,
+  onColorChange,
   isSandboxMode
 }: EmployeeNodeProps) {
   const handleDragStart = (e: React.DragEvent) => {
@@ -77,7 +78,6 @@ export function EmployeeNode({
     return colors[department as keyof typeof colors] || 'bg-gray-50 border-gray-200';
   };
 
-  const isExecutiveLevel = level <= 1;
   const showTeamMetrics = hasChildren && (directReportsCount > 0 || totalTeamSize > 0);
 
   // Get color styles - custom color takes priority, then department, then default
@@ -93,7 +93,7 @@ export function EmployeeNode({
   // 6. Default styling
   
   const getCardClasses = () => {
-    let baseClass = `rounded-lg shadow-sm border p-3 w-52 transition-all duration-200 hover:shadow-md ${isSandboxMode ? 'cursor-move' : 'cursor-pointer'} relative`;
+    const baseClass = `rounded-lg shadow-sm border p-3 w-52 transition-all duration-200 hover:shadow-md ${isSandboxMode ? 'cursor-move' : 'cursor-pointer'} relative`;
     
     if (isCenterPerson) {
       return `${baseClass} ring-2 ring-purple-500 bg-purple-50 border-purple-300`;
@@ -126,8 +126,19 @@ export function EmployeeNode({
       onDrop={handleDrop}
       onClick={() => onSelect(employee)}
     >
-      {/* Status indicators */}
+      {/* Status indicators and quick actions */}
       <div className="absolute -top-2 -right-2 flex space-x-1">
+        {/* Quick color picker - only in sandbox mode */}
+        {isSandboxMode && onColorChange && (
+          <div className="bg-white rounded-full p-1 shadow-md z-20">
+            <QuickColorPicker
+              currentColor={employee.customColor}
+              onColorChange={(color) => onColorChange(employee.id, color)}
+              disabled={!isSandboxMode}
+            />
+          </div>
+        )}
+        
         {/* Moved indicator badge */}
         {wasMoved && isSandboxMode && (
           <div className="bg-orange-500 text-white rounded-full p-1 shadow-md z-20" title="Employee has been reassigned">

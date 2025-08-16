@@ -205,6 +205,9 @@ export function EmployeeModal({
                   currentColor={editForm.customColor}
                   onColorChange={(color) => setEditForm({ ...editForm, customColor: color })}
                 />
+                <div className="mt-3 p-2 bg-blue-50 rounded text-xs text-blue-600">
+                  <strong>Tip:</strong> Use Ctrl+1-9 to quickly change colors when this modal is open
+                </div>
               </div>
             )}
           </div>

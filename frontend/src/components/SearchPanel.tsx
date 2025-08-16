@@ -1,6 +1,7 @@
 import React from 'react';
 import { Search, Filter, X } from 'lucide-react';
 import type { Employee } from '../data/mockData';
+import { getCardColorStyles, getColorHex } from './ColorPicker';
 
 interface SearchPanelProps {
   searchTerm: string;
@@ -20,7 +21,6 @@ export function SearchPanel({
   const [titleFilter, setTitleFilter] = React.useState('');
 
   const departments = [...new Set(employees.map(emp => emp.department))].sort();
-  const titles = [...new Set(employees.map(emp => emp.title))].sort();
 
   const filteredEmployees = employees.filter(emp => {
     const matchesDepartment = !departmentFilter || emp.department === departmentFilter;
@@ -108,8 +108,22 @@ export function SearchPanel({
               <div
                 key={employee.id}
                 onClick={() => onEmployeeSelect(employee)}
-                className="p-3 bg-white rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 cursor-pointer transition-colors"
+                className={`
+                  p-3 rounded-lg border cursor-pointer transition-colors relative
+                  ${employee.customColor ? 
+                    `${getCardColorStyles(employee.customColor).background} ${getCardColorStyles(employee.customColor).border} ${getCardColorStyles(employee.customColor).hover}` :
+                    'bg-white border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                  }
+                `}
               >
+                {/* Color indicator dot */}
+                {employee.customColor && (
+                  <div className="absolute top-2 right-2 w-3 h-3 rounded-full shadow-sm"
+                       style={{ backgroundColor: getColorHex(employee.customColor) }}
+                       title={`Custom color: ${employee.customColor}`}>
+                  </div>
+                )}
+                
                 <div className="flex items-center space-x-3">
                   <div className="w-8 h-8 rounded-full bg-gray-200 flex-shrink-0 flex items-center justify-center">
                     <span className="text-xs font-medium text-gray-600">

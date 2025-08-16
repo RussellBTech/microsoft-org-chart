@@ -13,6 +13,7 @@ import { ConfirmationDialog } from './components/ConfirmationDialog';
 import { useOrgStore } from './stores/orgStore';
 import { getStoredConfig, getConfigFromEnv, clearConfig } from './utils/azureConfig';
 import { AzureConfig } from './types/azureConfig';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { 
   AuthProvider, 
   useAuth, 
@@ -196,6 +197,13 @@ function AppContent() {
     updateEmployee(updatedEmployee);
   };
 
+  const handleEmployeeColorChange = (employeeId: string, color: string | undefined) => {
+    const employee = employees.find(emp => emp.id === employeeId);
+    if (employee) {
+      updateEmployee({ ...employee, customColor: color });
+    }
+  };
+
   const handleEmployeeReassign = (employeeId: string, newManagerId: string | null) => {
     reassignEmployee(employeeId, newManagerId);
   };
@@ -268,6 +276,13 @@ function AppContent() {
     setShowConfirmDialog(false);
     setPendingAction(null);
   };
+
+  // Enable keyboard shortcuts for quick color changes
+  useKeyboardShortcuts({
+    selectedEmployeeId: selectedEmployee?.id,
+    isSandboxMode,
+    onColorChange: handleEmployeeColorChange
+  });
   
 
   // Show loading state during authentication
@@ -462,6 +477,7 @@ function AppContent() {
               baseEmployees={baseEmployees}
               onEmployeeSelect={setSelectedEmployee}
               onEmployeeReassign={handleEmployeeReassign}
+              onEmployeeColorChange={handleEmployeeColorChange}
             />
           )}
         </div>

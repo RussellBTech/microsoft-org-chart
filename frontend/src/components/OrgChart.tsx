@@ -12,6 +12,7 @@ interface OrgChartProps {
   baseEmployees: Employee[];
   onEmployeeSelect: (employee: Employee) => void;
   onEmployeeReassign: (employeeId: string, newManagerId: string | null) => void;
+  onEmployeeColorChange?: (employeeId: string, color: string | undefined) => void;
 }
 
 type DisplayMode = 'horizontal' | 'vertical' | 'collapsed';
@@ -161,7 +162,8 @@ export function OrgChart({
   movedEmployeeIds,
   baseEmployees,
   onEmployeeSelect,
-  onEmployeeReassign
+  onEmployeeReassign,
+  onEmployeeColorChange
 }: OrgChartProps) {
   console.log('🔍 OrgChart render:', {
     employeeCount: employees.length,
@@ -622,6 +624,7 @@ export function OrgChart({
             onDragEnd={handleDragEnd}
             onDrop={handleDrop}
             onToggleDisplayMode={toggleDisplayMode}
+            onColorChange={onEmployeeColorChange}
             isSandboxMode={isSandboxMode}
           />
         </div>
@@ -658,6 +661,7 @@ export function OrgChart({
                       onDragEnd={handleDragEnd}
                       onDrop={handleDrop}
                       onToggleDisplayMode={toggleDisplayMode}
+                      onColorChange={onEmployeeColorChange}
                       isSandboxMode={isSandboxMode}
                     />
                   </div>
@@ -803,6 +807,7 @@ export function OrgChart({
                         onDragEnd={handleDragEnd}
                         onDrop={handleDrop}
                         onToggleDisplayMode={toggleDisplayMode}
+                        onColorChange={onEmployeeColorChange}
                         isSandboxMode={isSandboxMode}
                       />
                       {/* Add warning overlay */}
