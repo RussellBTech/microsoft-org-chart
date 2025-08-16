@@ -170,9 +170,15 @@ export const useOrgStore = create<OrgState>()(
         const newSandboxChanges = new Map(sandboxChanges);
         const newReassignedIds = new Set(reassignedEmployeeIds);
         
-        // Check if manager changed
-        if (originalEmployee && originalEmployee.managerId !== updatedEmployee.managerId) {
-          newReassignedIds.add(updatedEmployee.id);
+        // Check if manager changed and update reassigned status accordingly
+        if (originalEmployee) {
+          if (originalEmployee.managerId !== updatedEmployee.managerId) {
+            // Employee was moved to a different manager
+            newReassignedIds.add(updatedEmployee.id);
+          } else {
+            // Employee was moved back to original manager
+            newReassignedIds.delete(updatedEmployee.id);
+          }
         }
         
         newSandboxChanges.set(updatedEmployee.id, updatedEmployee);
@@ -190,17 +196,28 @@ export const useOrgStore = create<OrgState>()(
       },
       
       reassignEmployee: (employeeId, newManagerId) => {
-        const { isSandboxMode, employees, sandboxChanges, reassignedEmployeeIds } = get();
+        const { isSandboxMode, employees, baseEmployees, sandboxChanges, reassignedEmployeeIds } = get();
         if (!isSandboxMode) return;
         
         const currentEmployee = employees.find(emp => emp.id === employeeId);
+        const originalEmployee = baseEmployees.find(emp => emp.id === employeeId);
         if (!currentEmployee) return;
         
         const updatedEmployee = { ...currentEmployee, managerId: newManagerId };
         const newSandboxChanges = new Map(sandboxChanges);
         const newReassignedIds = new Set(reassignedEmployeeIds);
         
-        newReassignedIds.add(employeeId);
+        // Check if employee is being moved back to original position or to a new one
+        if (originalEmployee) {
+          if (originalEmployee.managerId !== newManagerId) {
+            // Employee is moved to a different manager than original
+            newReassignedIds.add(employeeId);
+          } else {
+            // Employee is moved back to original manager
+            newReassignedIds.delete(employeeId);
+          }
+        }
+        
         newSandboxChanges.set(employeeId, updatedEmployee);
         
         const newEmployees = employees.map(emp =>

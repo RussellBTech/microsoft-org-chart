@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronDown, ChevronRight, User, Mail, Phone, MoreVertical, ArrowRightLeft, Users } from 'lucide-react';
+import { ChevronDown, ChevronRight, User, Mail, Phone, MoreVertical, ArrowRightLeft, Users, Move } from 'lucide-react';
 import type { Employee } from '../data/mockData';
 import { getCardColorStyles } from './ColorPicker';
 import { QuickColorPicker } from './QuickColorPicker';
@@ -141,8 +141,8 @@ export function EmployeeNode({
         
         {/* Moved indicator badge */}
         {wasMoved && isSandboxMode && (
-          <div className="bg-orange-500 text-white rounded-full p-1 shadow-md z-20" title="Employee has been reassigned">
-            <ArrowRightLeft className="h-3 w-3" />
+          <div className="bg-orange-500 text-white rounded-full p-1.5 shadow-md z-20" title="Employee has been reassigned">
+            <Move className="h-2.5 w-2.5" />
           </div>
         )}
         
