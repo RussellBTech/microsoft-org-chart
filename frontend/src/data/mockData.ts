@@ -9,6 +9,7 @@ export interface Employee {
   avatar?: string; // Not available from Graph API directly
   managerId?: string;
   customColor?: string; // For sandbox mode color customization
+  managerInfo?: Employee; // Full manager data loaded on-demand
   
   // Additional Microsoft Graph API fields
   userPrincipalName?: string;

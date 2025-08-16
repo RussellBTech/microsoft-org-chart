@@ -4,7 +4,6 @@ import { Employee, Scenario } from '../data/mockData';
 import { ViewMode } from '../components/ViewModeSelector';
 import { 
   fetchUserTeamRecursively,
-  fetchUserOrgContext,
   buildTeamContextFromDirectReports,
   makeGraphRequest,
   searchUsers,
@@ -13,6 +12,7 @@ import {
   getApiErrorMessage,
   isAuthError
 } from '../auth';
+import { USER_SELECT_FIELDS } from '../auth/authUtils';
 
 export type DataSource = 'mock' | 'graph' | null;
 export type LoadingType = 'initial' | 'search' | 'user-context' | null;
@@ -29,6 +29,9 @@ interface OrgState {
   baseEmployees: Employee[];
   allEmployees: Employee[];
   currentUser: Employee | null;
+  
+  // Context cache for on-demand loading
+  contextCache: Map<string, Employee[]>;
   
   // Planning mode state (allows modifications to org structure)
   isSandboxMode: boolean; // Internal: tracks if user is in planning mode
@@ -90,6 +93,12 @@ interface OrgState {
   loadMockData: () => void;
   searchEmployees: (query: string, getGraphToken: () => Promise<string | null>, isAuthenticated: boolean) => Promise<Employee[]>;
   changeView: (newConfig: ViewConfig, getGraphToken: () => Promise<string | null>, isAuthenticated: boolean) => Promise<void>;
+  
+  // On-demand context loading
+  getContextForUser: (userId: string, getGraphToken: () => Promise<string | null>, isAuthenticated: boolean) => Promise<Employee[]>;
+  
+  // Get manager info for employee details
+  getManagerForUser: (userId: string, getGraphToken: () => Promise<string | null>, isAuthenticated: boolean) => Promise<Employee | null>;
 }
 
 export const useOrgStore = create<OrgState>()(
@@ -100,6 +109,7 @@ export const useOrgStore = create<OrgState>()(
       baseEmployees: [],
       allEmployees: [],
       currentUser: null,
+      contextCache: new Map(),
       
       isSandboxMode: false,
       sandboxChanges: new Map(),
@@ -288,7 +298,7 @@ export const useOrgStore = create<OrgState>()(
           const meQuery = '/me?$select=id,displayName,jobTitle,department,mail,userPrincipalName,employeeId,accountEnabled,employeeType,employeeHireDate,companyName,businessPhones,mobilePhone,officeLocation,streetAddress,city,state,postalCode,country,preferredLanguage';
           const currentUser = await retryApiCall(() => makeGraphRequest(meQuery, accessToken));
           
-          // Fetch the current user's complete team hierarchy
+          // Fetch the current user's complete team hierarchy (user + all their reports)
           const userWithTeam = await retryApiCall(() => 
             fetchUserTeamRecursively(accessToken, currentUser.id)
           );
@@ -298,12 +308,41 @@ export const useOrgStore = create<OrgState>()(
           }
           
           // Build flat employee list from the hierarchical data
-          const teamEmployees = buildTeamContextFromDirectReports(userWithTeam);
+          let teamEmployees = buildTeamContextFromDirectReports(userWithTeam);
+          
+          console.log(`✅ Team loaded: ${teamEmployees.length} employees in ${currentUser.displayName}'s hierarchy`);
+          console.log('🔄 Loading manager info for all team members...');
+          
+          // Load manager info for all employees in the team hierarchy
+          const employeesWithManagers = await Promise.all(
+            teamEmployees.map(async (employee) => {
+              try {
+                // Try to get manager info for this employee
+                const managerQuery = `/users/${employee.id}/manager?$select=${USER_SELECT_FIELDS}`;
+                const manager = await makeGraphRequest(managerQuery, accessToken);
+                
+                if (manager && manager.accountEnabled !== false) {
+                  const managerEmployee = transformGraphUserToEmployee(manager);
+                  return {
+                    ...employee,
+                    managerInfo: managerEmployee // Store full manager info
+                  };
+                }
+              } catch (error) {
+                // Manager lookup failed - not a problem, just log it
+                console.log(`No manager found for ${employee.name}:`, error);
+              }
+              
+              return employee; // Return employee without manager info if not found
+            })
+          );
+          
+          teamEmployees = employeesWithManagers;
           
           // Set current user
           const currentUserEmployee = teamEmployees.find(emp => emp.id === currentUser.id);
           
-          console.log(`✅ On-demand team loaded: ${teamEmployees.length} employees in ${currentUser.displayName}'s hierarchy`);
+          console.log(`✅ Complete team loaded with manager info: ${teamEmployees.length} employees`);
           
           set({
             employees: teamEmployees,
@@ -334,10 +373,24 @@ export const useOrgStore = create<OrgState>()(
         import('../data/mockData').then(({ mockEmployees }) => {
           const demoUser = mockEmployees.find(e => !e.managerId) || mockEmployees[0];
           
+          // Populate manager info for each employee based on managerId
+          const employeesWithManagerInfo = mockEmployees.map(employee => {
+            if (employee.managerId) {
+              const manager = mockEmployees.find(emp => emp.id === employee.managerId);
+              if (manager) {
+                return {
+                  ...employee,
+                  managerInfo: manager
+                };
+              }
+            }
+            return employee;
+          });
+          
           set({
-            employees: [...mockEmployees],
-            baseEmployees: [...mockEmployees],
-            allEmployees: [...mockEmployees],
+            employees: [...employeesWithManagerInfo],
+            baseEmployees: [...employeesWithManagerInfo],
+            allEmployees: [...employeesWithManagerInfo],
             currentUser: demoUser,
             dataSource: 'mock',
             backgroundDataLoaded: true,
@@ -470,19 +523,20 @@ export const useOrgStore = create<OrgState>()(
           
           if (newConfig.mode === 'search' && newConfig.centerPersonId) {
             try {
-              console.log(`🔄 Context-aware loading for user: ${newConfig.centerPersonId}`);
+              console.log(`🎯 Loading context for user: ${newConfig.centerPersonId}`);
               
-              // Use new context-aware fetching that handles both managers and individual contributors
-              const userContext = await fetchUserOrgContext(accessToken, newConfig.centerPersonId);
+              // Use our new on-demand context loading with manager retrieval
+              const contextEmployees = await get().getContextForUser(
+                newConfig.centerPersonId, 
+                getGraphToken, 
+                isAuthenticated
+              );
               
-              if (!userContext) {
-                throw new Error(`User ${newConfig.centerPersonId} not found or inactive`);
+              if (contextEmployees.length === 0) {
+                throw new Error(`No context found for user ${newConfig.centerPersonId}`);
               }
               
-              // Build flat employee list from the hierarchical data
-              const contextEmployees = buildTeamContextFromDirectReports(userContext);
-              
-              console.log(`✅ Context-aware loaded: ${contextEmployees.length} employees for ${userContext.displayName}'s context`);
+              console.log(`✅ Loaded ${contextEmployees.length} employees for user context`);
               
               set({
                 employees: contextEmployees,
@@ -505,6 +559,230 @@ export const useOrgStore = create<OrgState>()(
           set({ dataError: getApiErrorMessage(error) });
         } finally {
           set({ isLoadingData: false, loadingType: null });
+        }
+      },
+      
+      // On-demand context loading with manager retrieval
+      getContextForUser: async (userId, getGraphToken, isAuthenticated) => {
+        const { contextCache, allEmployees, useMockData } = get();
+        
+        // Check cache first
+        if (contextCache.has(userId)) {
+          console.log(`📋 Using cached context for user ${userId}`);
+          return contextCache.get(userId)!;
+        }
+        
+        if (!isAuthenticated || useMockData) {
+          // Mock data fallback - use existing allEmployees (already has manager info)
+          const user = allEmployees.find(e => e.id === userId);
+          if (user) {
+            const contextIds = new Set<string>();
+            contextIds.add(user.id);
+            
+            // Add all their reports recursively
+            const addAllReports = (managerId: string) => {
+              const directReports = allEmployees.filter(e => e.managerId === managerId);
+              directReports.forEach(report => {
+                contextIds.add(report.id);
+                addAllReports(report.id);
+              });
+            };
+            
+            addAllReports(user.id);
+            const contextEmployees = allEmployees.filter(e => contextIds.has(e.id));
+            
+            // Cache the result (mock data already has manager info populated)
+            contextCache.set(userId, contextEmployees);
+            set({ contextCache: new Map(contextCache) });
+            
+            return contextEmployees;
+          }
+          return [];
+        }
+        
+        try {
+          console.log(`🔄 Loading on-demand context for user: ${userId}`);
+          const accessToken = await getGraphToken();
+          if (!accessToken) throw new Error('No access token');
+          
+          // Check if user exists in our current employee cache first
+          const cachedUser = allEmployees.find(e => e.id === userId);
+          if (cachedUser) {
+            console.log(`👥 User ${userId} found in cache - building context from existing data`);
+            
+            // Build context from current cache (downward hierarchy we already have)
+            const contextIds = new Set<string>();
+            contextIds.add(userId);
+            
+            const addAllReports = (managerId: string) => {
+              const directReports = allEmployees.filter(e => e.managerId === managerId);
+              directReports.forEach(report => {
+                contextIds.add(report.id);
+                addAllReports(report.id);
+              });
+            };
+            
+            addAllReports(userId);
+            let contextEmployees = allEmployees.filter(e => contextIds.has(e.id));
+            
+            // Load manager info for all employees in this context (if not already loaded)
+            console.log('🔄 Loading manager info for context employees...');
+            const employeesWithManagers = await Promise.all(
+              contextEmployees.map(async (employee) => {
+                // Skip if already has manager info
+                if (employee.managerInfo) {
+                  return employee;
+                }
+                
+                try {
+                  const managerQuery = `/users/${employee.id}/manager?$select=${USER_SELECT_FIELDS}`;
+                  const manager = await makeGraphRequest(managerQuery, accessToken);
+                  
+                  if (manager && manager.accountEnabled !== false) {
+                    const managerEmployee = transformGraphUserToEmployee(manager);
+                    return {
+                      ...employee,
+                      managerInfo: managerEmployee
+                    };
+                  }
+                } catch (error) {
+                  console.log(`No manager found for ${employee.name}:`, error);
+                }
+                
+                return employee;
+              })
+            );
+            
+            contextEmployees = employeesWithManagers;
+            
+            // Cache and return
+            contextCache.set(userId, contextEmployees);
+            set({ contextCache: new Map(contextCache) });
+            
+            return contextEmployees;
+          }
+          
+          // User not in our cache - load THEIR team (user + all reports) as top-level
+          let contextEmployees: Employee[] = [];
+          
+          try {
+            console.log(`🔍 User ${userId} not in cache - loading their team as top-level`);
+            
+            // Always load the user's own team hierarchy (user + all their reports)
+            // This makes them the top-level node in the org chart
+            const userTeam = await fetchUserTeamRecursively(accessToken, userId);
+            let teamEmployees = buildTeamContextFromDirectReports(userTeam);
+            
+            console.log(`✅ Loaded ${teamEmployees.length} employees from ${userId}'s team hierarchy`);
+            console.log('🔄 Loading manager info for all team members...');
+            
+            // Load manager info for all employees in the team hierarchy
+            const employeesWithManagers = await Promise.all(
+              teamEmployees.map(async (employee) => {
+                try {
+                  const managerQuery = `/users/${employee.id}/manager?$select=${USER_SELECT_FIELDS}`;
+                  const manager = await makeGraphRequest(managerQuery, accessToken);
+                  
+                  if (manager && manager.accountEnabled !== false) {
+                    const managerEmployee = transformGraphUserToEmployee(manager);
+                    return {
+                      ...employee,
+                      managerInfo: managerEmployee
+                    };
+                  }
+                } catch (error) {
+                  console.log(`No manager found for ${employee.name}:`, error);
+                }
+                
+                return employee;
+              })
+            );
+            
+            contextEmployees = employeesWithManagers;
+            console.log(`✅ Complete team loaded with manager info: ${contextEmployees.length} employees`);
+          } catch (teamError) {
+            console.log(`Could not load team for ${userId}:`, teamError);
+            
+            // Fallback: try to at least get the user themselves with manager info
+            try {
+              const userQuery = `/users/${userId}?$select=${USER_SELECT_FIELDS}`;
+              const user = await makeGraphRequest(userQuery, accessToken);
+              if (user && user.accountEnabled !== false) {
+                let userEmployee = transformGraphUserToEmployee(user);
+                
+                // Try to get manager info for this user too
+                try {
+                  const managerQuery = `/users/${userId}/manager?$select=${USER_SELECT_FIELDS}`;
+                  const manager = await makeGraphRequest(managerQuery, accessToken);
+                  
+                  if (manager && manager.accountEnabled !== false) {
+                    const managerEmployee = transformGraphUserToEmployee(manager);
+                    userEmployee = {
+                      ...userEmployee,
+                      managerInfo: managerEmployee
+                    };
+                  }
+                } catch (managerError) {
+                  console.log(`No manager found for ${user.displayName}:`, managerError);
+                }
+                
+                contextEmployees = [userEmployee];
+                console.log(`✅ Fallback: Loaded just the user ${user.displayName} with manager info`);
+              }
+            } catch (userError) {
+              console.log(`Could not load user ${userId}:`, userError);
+            }
+          }
+          
+          // Cache the result for future use
+          if (contextEmployees.length > 0) {
+            contextCache.set(userId, contextEmployees);
+            set({ contextCache: new Map(contextCache) });
+          }
+          
+          return contextEmployees;
+          
+        } catch (error) {
+          console.error(`Failed to load context for user ${userId}:`, error);
+          return [];
+        }
+      },
+      
+      // Get manager info for employee details modal
+      getManagerForUser: async (userId, getGraphToken, isAuthenticated) => {
+        const { allEmployees, useMockData } = get();
+        
+        if (!isAuthenticated || useMockData) {
+          // Mock data - find manager by managerId
+          const user = allEmployees.find(e => e.id === userId);
+          if (user?.managerId) {
+            return allEmployees.find(e => e.id === user.managerId) || null;
+          }
+          return null;
+        }
+        
+        try {
+          console.log(`🔍 Fetching manager info for user: ${userId}`);
+          const accessToken = await getGraphToken();
+          if (!accessToken) return null;
+          
+          // Single manager API call
+          const managerQuery = `/users/${userId}/manager?$select=${USER_SELECT_FIELDS}`;
+          const manager = await makeGraphRequest(managerQuery, accessToken);
+          
+          if (manager && manager.accountEnabled !== false) {
+            // Transform to our Employee format
+            const managerEmployee = transformGraphUserToEmployee(manager);
+            console.log(`✅ Found manager: ${managerEmployee.name}`);
+            return managerEmployee;
+          }
+          
+          console.log(`👑 User ${userId} has no manager (might be CEO)`);
+          return null;
+          
+        } catch (error) {
+          console.log(`Could not fetch manager for ${userId}:`, error);
+          return null;
         }
       }
     }),

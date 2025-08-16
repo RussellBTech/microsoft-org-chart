@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, User, Loader2, Save } from 'lucide-react';
+import { Search, User, Loader2, Save, ArrowUp } from 'lucide-react';
 import type { Employee } from '../data/mockData';
 
 export type ViewMode = 'my-view' | 'search';
@@ -245,6 +245,34 @@ export function ViewModeSelector({
           {viewConfig.mode === 'search' && viewConfig.searchQuery && (
             <span>Search results for "{viewConfig.searchQuery}"</span>
           )}
+        </div>
+        
+        {/* Center: Move Up Link */}
+        <div className="flex items-center">
+          {(() => {
+            // Find the person we're currently viewing
+            const centerPerson = viewConfig.centerPersonId 
+              ? employees.find(emp => emp.id === viewConfig.centerPersonId) || currentUser
+              : currentUser;
+            
+            // Show "Move Up" if they have a manager
+            if (centerPerson?.managerInfo) {
+              return (
+                <button
+                  onClick={() => onViewChange({
+                    mode: 'search',
+                    centerPersonId: centerPerson.managerInfo!.id,
+                    searchQuery: centerPerson.managerInfo!.name
+                  })}
+                  className="flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline font-medium"
+                >
+                  <ArrowUp className="w-4 h-4" />
+                  Move up to {centerPerson.managerInfo.name}
+                </button>
+              );
+            }
+            return null;
+          })()}
         </div>
         
         <div className="flex items-center gap-4">

@@ -28,8 +28,9 @@ export function EmployeeModal({
   
   const canEdit = isSandboxMode && (userRole === 'admin' || userRole === 'manager');
 
-  // Find manager information
-  const manager = employee.managerId ? employees.find(emp => emp.id === employee.managerId) : null;
+  // Find manager information - use pre-loaded data first, then fallback to local search
+  const manager = employee.managerInfo || 
+    (employee.managerId ? employees.find(emp => emp.id === employee.managerId) : null);
 
   // Click outside to close
   useEffect(() => {
