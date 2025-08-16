@@ -39,8 +39,17 @@ export function QuickColorPicker({ currentColor, onColorChange, disabled = false
     return null;
   }
 
+  const handleContainerEvents = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent all mouse events from bubbling up
+  };
+
   return (
-    <div className="relative">
+    <div 
+      className="relative"
+      onClick={handleContainerEvents}
+      onMouseDown={handleContainerEvents}
+      onMouseUp={handleContainerEvents}
+    >
       {/* Trigger button */}
       <button
         onClick={handleToggle}
@@ -71,7 +80,14 @@ export function QuickColorPicker({ currentColor, onColorChange, disabled = false
           />
           
           {/* Color grid */}
-          <div className="absolute top-8 right-0 z-50 bg-white rounded-lg shadow-xl border border-gray-200 p-3 min-w-[140px]">
+          <div 
+            className="absolute top-8 right-0 z-50 bg-white rounded-lg shadow-xl border border-gray-200 p-3 min-w-[140px]"
+            onClick={handleContainerEvents}
+            onMouseDown={handleContainerEvents}
+            onMouseUp={handleContainerEvents}
+            onMouseEnter={handleContainerEvents}
+            onMouseLeave={handleContainerEvents}
+          >
             <div className="grid grid-cols-3 gap-2">
               {QUICK_COLORS.map((color) => (
                 <button
