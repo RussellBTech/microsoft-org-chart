@@ -259,12 +259,20 @@ export function ViewModeSelector({
             if (centerPerson?.managerInfo) {
               return (
                 <button
-                  onClick={() => onViewChange({
-                    mode: 'search',
-                    centerPersonId: centerPerson.managerInfo!.id,
-                    searchQuery: centerPerson.managerInfo!.name
-                  })}
+                  onClick={() => {
+                    console.log('🔼 Move Up clicked!', {
+                      managerId: centerPerson.managerInfo!.id,
+                      managerName: centerPerson.managerInfo!.name,
+                      fromPerson: centerPerson.name
+                    });
+                    onViewChange({
+                      mode: 'search',
+                      centerPersonId: centerPerson.managerInfo!.id,
+                      searchQuery: centerPerson.managerInfo!.name
+                    });
+                  }}
                   className="flex items-center gap-1 text-blue-600 hover:text-blue-800 hover:underline font-medium"
+                  title={`Navigate to ${centerPerson.managerInfo.name}'s team context (if accessible)`}
                 >
                   <ArrowUp className="w-4 h-4" />
                   Move up to {centerPerson.managerInfo.name}

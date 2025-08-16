@@ -431,7 +431,9 @@ export const useOrgStore = create<OrgState>()(
       },
       
       changeView: async (newConfig, getGraphToken, isAuthenticated) => {
-        const { hasUnsavedChanges, isSandboxMode, useMockData, allEmployees, currentUser } = get();
+        console.log('🔄 changeView called with:', newConfig);
+        const { hasUnsavedChanges, isSandboxMode, useMockData, allEmployees, currentUser, dataSource } = get();
+        console.log('🔄 changeView state:', { hasUnsavedChanges, isSandboxMode, useMockData, isAuthenticated, dataSource });
         
         // Check for unsaved changes
         if (hasUnsavedChanges && isSandboxMode) {
@@ -439,93 +441,183 @@ export const useOrgStore = create<OrgState>()(
           return;
         }
         
-        if (!isAuthenticated || useMockData) {
-          // Handle mock data view changes - update viewConfig immediately
+        // Smart routing: check if target person is in current dataset first
+        if (newConfig.mode === 'search' && newConfig.centerPersonId) {
+          const targetPerson = allEmployees.find(e => e.id === newConfig.centerPersonId);
+          
+          if (targetPerson) {
+            // Target person is in current dataset - use local data (fast)
+            console.log(`🎯 Target person ${targetPerson.name} found in current dataset - using local data`);
+            set({ viewConfig: newConfig });
+            
+            const contextIds = new Set<string>();
+            contextIds.add(targetPerson.id);
+            
+            // Add all their reports recursively
+            const addAllReports = (managerId: string) => {
+              const directReports = allEmployees.filter(e => e.managerId === managerId);
+              directReports.forEach(report => {
+                contextIds.add(report.id);
+                addAllReports(report.id);
+              });
+            };
+            
+            addAllReports(targetPerson.id);
+            const contextEmployees = allEmployees.filter(e => contextIds.has(e.id));
+            
+            set({
+              employees: contextEmployees,
+              baseEmployees: contextEmployees
+            });
+            return;
+          }
+          
+          // Check if target person exists as manager info in any current employee
+          const employeeWithThisManager = allEmployees.find(emp => 
+            emp.managerInfo?.id === newConfig.centerPersonId
+          );
+          
+          if (employeeWithThisManager?.managerInfo) {
+            // We have the manager's info but they're not in our employee dataset
+            // Try to load their proper team context using Graph API
+            console.log(`🎯 Target person ${employeeWithThisManager.managerInfo.name} found as manager info - loading their team context`);
+            
+            // Use mock data logic if explicitly using mock data
+            if (useMockData) {
+              // For mock data, create single-person context
+              set({ viewConfig: newConfig });
+              const managerAsEmployee: Employee = {
+                ...employeeWithThisManager.managerInfo,
+                managerInfo: employeeWithThisManager.managerInfo.managerInfo
+              };
+              set({
+                employees: [managerAsEmployee],
+                baseEmployees: [managerAsEmployee]
+              });
+              return;
+            }
+            
+            // For Graph API, load the manager's team using the same pattern as initial load
+            if (dataSource === 'graph') {
+              try {
+                set({ 
+                  isLoadingData: true, 
+                  loadingType: 'user-context', 
+                  dataError: null,
+                  viewConfig: newConfig
+                });
+                
+                const accessToken = await getGraphToken();
+                console.log(`🎯 Loading ${employeeWithThisManager.managerInfo.name}'s team using same pattern as initial load`);
+                
+                // Use the SAME fetchUserTeamRecursively that works for initial load
+                const managerTeam = await fetchUserTeamRecursively(accessToken, newConfig.centerPersonId);
+                let managerEmployees = buildTeamContextFromDirectReports(managerTeam);
+                
+                console.log(`✅ Manager team loaded: ${managerEmployees.length} employees in ${employeeWithThisManager.managerInfo.name}'s hierarchy`);
+                console.log('🔄 Loading manager info for manager team members...');
+                
+                // Load manager info for all employees in the manager's team (same as initial load)
+                const employeesWithManagers = await Promise.all(
+                  managerEmployees.map(async (employee) => {
+                    try {
+                      const managerQuery = `/users/${employee.id}/manager?$select=${USER_SELECT_FIELDS}`;
+                      const manager = await makeGraphRequest(managerQuery, accessToken);
+                      
+                      if (manager && manager.accountEnabled !== false) {
+                        const managerEmployee = transformGraphUserToEmployee(manager);
+                        return {
+                          ...employee,
+                          managerInfo: managerEmployee
+                        };
+                      }
+                    } catch (error) {
+                      console.log(`No manager found for ${employee.name}:`, error);
+                    }
+                    
+                    return employee;
+                  })
+                );
+                
+                managerEmployees = employeesWithManagers;
+                console.log(`✅ Complete manager team loaded with manager info: ${managerEmployees.length} employees`);
+                
+                set({
+                  employees: managerEmployees,
+                  baseEmployees: managerEmployees,
+                  allEmployees: managerEmployees
+                });
+                return;
+                
+              } catch (error) {
+                console.error('Failed to load manager team:', error);
+                // Show error and keep current view
+                set({ 
+                  dataError: `Unable to load ${employeeWithThisManager.managerInfo.name}'s team: ${getApiErrorMessage(error)}`,
+                  isLoadingData: false,
+                  loadingType: null
+                });
+                return;
+              } finally {
+                set({ isLoadingData: false, loadingType: null });
+              }
+            }
+          }
+        }
+        
+        // Use mock data logic if explicitly using mock data
+        if (useMockData) {
+          console.log('📋 Using mock data logic');
           set({ viewConfig: newConfig });
           
           if (newConfig.mode === 'my-view' && currentUser) {
             const contextIds = new Set<string>();
             contextIds.add(currentUser.id);
             
-            // Team-focused: show current user + ALL levels of their reports
             const addAllReports = (managerId: string) => {
               const directReports = allEmployees.filter(e => e.managerId === managerId);
               directReports.forEach(report => {
                 contextIds.add(report.id);
-                // Recursively add their reports (all levels)
                 addAllReports(report.id);
               });
             };
             
-            // Add all reports recursively
             addAllReports(currentUser.id);
-            
             const contextEmployees = allEmployees.filter(e => contextIds.has(e.id));
-            console.log(`🏠 My team view for ${currentUser.name}: ${contextEmployees.length} people (you + ${contextEmployees.length - 1} reports)`);
             
             set({
               employees: contextEmployees,
               baseEmployees: contextEmployees
             });
-          } else if (newConfig.mode === 'search' && newConfig.centerPersonId) {
-            const centerPerson = allEmployees.find(e => e.id === newConfig.centerPersonId);
-            if (centerPerson) {
-              console.log(`🔧 Mock team context for ${centerPerson.name}:`, {
-                centerPersonId: centerPerson.id,
-                allEmployeesCount: allEmployees.length,
-                centerPersonManager: centerPerson.managerId || 'none'
-              });
-              
-              const contextIds = new Set<string>();
-              contextIds.add(centerPerson.id);
-              
-              // Team-focused downward context: person + ALL levels of their reports
-              // Recursive function to add all reports at any depth
-              const addAllReports = (managerId: string, depth: number = 0) => {
-                const directReports = allEmployees.filter(e => e.managerId === managerId);
-                console.log(`  ${'  '.repeat(depth)}Manager ${managerId} has ${directReports.length} reports`);
-                directReports.forEach(report => {
-                  contextIds.add(report.id);
-                  console.log(`  ${'  '.repeat(depth + 1)}Adding ${report.name} (id: ${report.id})`);
-                  // Recursively add their reports (all levels)
-                  addAllReports(report.id, depth + 1);
-                });
-              };
-              
-              // Add all reports recursively (CEO can navigate down to any employee)
-              addAllReports(centerPerson.id);
-              
-              const contextEmployees = allEmployees.filter(e => contextIds.has(e.id));
-              console.log(`🎯 Team-focused view for ${centerPerson.name}: ${contextEmployees.length} people (person + ${contextEmployees.length - 1} reports)`, {
-                employeeIds: contextEmployees.map(emp => ({ id: emp.id, name: emp.name, managerId: emp.managerId }))
-              });
-              
-              set({
-                employees: contextEmployees,
-                baseEmployees: contextEmployees
-              });
-            }
           }
           return;
         }
         
-        // Handle Graph API view changes
-        try {
-          set({ 
-            isLoadingData: true, 
-            loadingType: 'user-context', 
-            dataError: null,
-            viewConfig: newConfig // Update viewConfig immediately so loading shows correct user
-          });
+        // Target person not in current dataset - need to load via Graph API
+        if (dataSource === 'graph') {
+          console.log(`🔄 Target person not in current dataset - loading via Graph API`);
           
-          const accessToken = await getGraphToken();
-          if (!accessToken) throw new Error('No access token');
-          
-          if (newConfig.mode === 'search' && newConfig.centerPersonId) {
+          try {
+            set({ 
+              isLoadingData: true, 
+              loadingType: 'user-context', 
+              dataError: null,
+              viewConfig: newConfig
+            });
+            
+            // Try to get access token - use multiple strategies
+            let accessToken: string | null = null;
             try {
+              accessToken = await getGraphToken();
+            } catch (tokenError) {
+              console.log('🔐 Primary token acquisition failed, trying alternative approach:', tokenError);
+              // For now, just rethrow - but we could implement token refresh logic here
+              throw tokenError;
+            }
+            
+            if (newConfig.mode === 'search' && newConfig.centerPersonId) {
               console.log(`🎯 Loading context for user: ${newConfig.centerPersonId}`);
               
-              // Use our new on-demand context loading with manager retrieval
               const contextEmployees = await get().getContextForUser(
                 newConfig.centerPersonId, 
                 getGraphToken, 
@@ -542,23 +634,39 @@ export const useOrgStore = create<OrgState>()(
                 employees: contextEmployees,
                 baseEmployees: contextEmployees
               });
-            } catch (error) {
-              console.error('Failed to fetch user context:', error);
-              // Fallback to local data or my-view
-              const fallbackConfig = { ...newConfig, mode: 'my-view' as ViewMode, centerPersonId: currentUser?.id };
-              set({ viewConfig: fallbackConfig });
+            } else if (newConfig.mode === 'my-view') {
+              const updatedConfig = { ...newConfig, centerPersonId: currentUser?.id };
+              set({ viewConfig: updatedConfig });
             }
-          } else if (newConfig.mode === 'my-view') {
-            const updatedConfig = { ...newConfig, centerPersonId: currentUser?.id };
-            set({ viewConfig: updatedConfig });
-            // Use existing context if available
+            
+          } catch (error) {
+            console.error('🚨 Graph API failed, showing error to user:', error);
+            
+            // Show a specific message for manager access issues
+            const errorMessage = error.message?.includes('No context found') 
+              ? `${newConfig.searchQuery || 'User'} is outside your organizational access scope. You can only navigate within your team hierarchy.`
+              : `Unable to load ${newConfig.searchQuery || 'user context'}: ${getApiErrorMessage(error)}`;
+            
+            // Show a user-friendly error and revert to previous view
+            set({ 
+              dataError: errorMessage,
+              viewConfig: { mode: 'my-view', centerPersonId: currentUser?.id },
+              isLoadingData: false,
+              loadingType: null
+            });
+            
+            // Keep current employees unchanged so user doesn't lose their view
+            return;
+          } finally {
+            set({ isLoadingData: false, loadingType: null });
           }
-          
-        } catch (error) {
-          console.error('View change failed:', error);
-          set({ dataError: getApiErrorMessage(error) });
-        } finally {
-          set({ isLoadingData: false, loadingType: null });
+        } else {
+          // No Graph data available - show error
+          console.log('🚨 No Graph data source available');
+          set({ 
+            dataError: `Cannot navigate to ${newConfig.searchQuery || 'target user'} - no data source available`,
+            viewConfig: { mode: 'my-view', centerPersonId: currentUser?.id }
+          });
         }
       },
       

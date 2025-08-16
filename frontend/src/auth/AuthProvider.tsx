@@ -202,16 +202,27 @@ export function AuthProvider({ children, initialConfig = null }: AuthProviderPro
    * Acquire token silently for API calls
    */
   const acquireTokenSilently = useCallback(async (scopes?: string[]): Promise<string | null> => {
-    if (!msalInstance || !user) {
-      console.warn('Cannot acquire token: MSAL instance or user not available');
+    if (!msalInstance) {
+      console.warn('Cannot acquire token: MSAL instance not available');
       return null;
     }
     
+    // Get accounts directly from MSAL instead of relying on user state
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length === 0) {
+      console.warn('Cannot acquire token: No accounts found in MSAL');
+      return null;
+    }
+    
+    const account = accounts[0];
+    console.log('🔐 Using account for token:', { accountId: account.homeAccountId, username: account.username });
+    
     try {
       const silentRequest = createSilentRequest(scopes);
-      silentRequest.account = user;
+      silentRequest.account = account;
       
       const response = await msalInstance.acquireTokenSilent(silentRequest);
+      console.log('✅ Silent token acquisition successful');
       return response.accessToken;
       
     } catch (err) {
@@ -219,8 +230,10 @@ export function AuthProvider({ children, initialConfig = null }: AuthProviderPro
       
       // If silent token acquisition fails, try interactive
       try {
+        console.log('🔄 Attempting interactive token acquisition...');
         const loginRequest = createLoginRequest(azureConfig!);
         const response = await msalInstance.acquireTokenPopup(loginRequest);
+        console.log('✅ Interactive token acquisition successful');
         return response.accessToken;
       } catch (interactiveErr) {
         console.error('Interactive token acquisition failed:', interactiveErr);
@@ -228,7 +241,7 @@ export function AuthProvider({ children, initialConfig = null }: AuthProviderPro
         return null;
       }
     }
-  }, [msalInstance, user, azureConfig]);
+  }, [msalInstance, azureConfig]);
 
   /**
    * Get access token specifically for Microsoft Graph API
@@ -363,18 +376,13 @@ export function useUser(): AccountInfo | null {
  * Hook to get access token for Microsoft Graph
  */
 export function useGraphToken() {
-  const { getAccessToken, isAuthenticated } = useAuth();
+  const { getAccessToken } = useAuth();
   
   return useCallback(async () => {
-    if (!isAuthenticated) {
-      throw new Error('User is not authenticated');
-    }
-    
     const token = await getAccessToken();
     if (!token) {
       throw new Error('Failed to acquire access token');
     }
-    
     return token;
-  }, [getAccessToken, isAuthenticated]);
+  }, [getAccessToken]);
 }
