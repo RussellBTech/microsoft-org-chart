@@ -17,6 +17,13 @@ export function QuickSaveModal({ isOpen, onClose, onSave, onDelete, scenarios = 
   const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
   const modalRef = useRef<HTMLDivElement>(null);
 
+  // Debug logging
+  useEffect(() => {
+    if (isOpen) {
+      console.log('🔍 QuickSaveModal opened with scenarios:', scenarios.length, scenarios.map(s => s.name));
+    }
+  }, [isOpen, scenarios]);
+
   // Handle outside click and escape key
   useEffect(() => {
     if (!isOpen) return;

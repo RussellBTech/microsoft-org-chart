@@ -245,11 +245,17 @@ export const useOrgStore = create<OrgState>()(
       saveScenario: (name, description, createdBy) => {
         const { scenarios, employees } = get();
         
+        // Debug logging for production troubleshooting
+        console.log('💾 Saving scenario:', { name, description, createdBy });
+        console.log('📋 Current scenarios in state:', scenarios.length, scenarios.map(s => s.name));
+        console.log('👥 Current employees:', employees.length);
+        
         // Check if scenario with same name already exists
         const existingScenarioIndex = scenarios.findIndex(s => s.name === name);
         
         if (existingScenarioIndex >= 0) {
           // Overwrite existing scenario
+          console.log('🔄 Overwriting existing scenario at index:', existingScenarioIndex);
           const updatedScenario: Scenario = {
             ...scenarios[existingScenarioIndex],
             description,
@@ -260,6 +266,8 @@ export const useOrgStore = create<OrgState>()(
           const newScenarios = [...scenarios];
           newScenarios[existingScenarioIndex] = updatedScenario;
           
+          console.log('✅ Updated scenarios array:', newScenarios.length, newScenarios.map(s => s.name));
+          
           set({
             scenarios: newScenarios,
             currentScenario: updatedScenario,
@@ -267,6 +275,7 @@ export const useOrgStore = create<OrgState>()(
           });
         } else {
           // Create new scenario
+          console.log('➕ Creating new scenario');
           const newScenario: Scenario = {
             id: Date.now().toString(),
             name,
@@ -276,8 +285,11 @@ export const useOrgStore = create<OrgState>()(
             employees: [...employees]
           };
           
+          const newScenarios = [...scenarios, newScenario];
+          console.log('✅ New scenarios array:', newScenarios.length, newScenarios.map(s => s.name));
+          
           set({
-            scenarios: [...scenarios, newScenario],
+            scenarios: newScenarios,
             currentScenario: newScenario,
             hasUnsavedChanges: false
           });
@@ -934,11 +946,21 @@ export const useOrgStore = create<OrgState>()(
     }),
     {
       name: 'org-chart-storage',
-      partialize: (state) => ({ 
-        scenarios: state.scenarios,
-        userRole: state.userRole
-        // Note: useMockData is NOT persisted - should reset each session
-      })
+      partialize: (state) => {
+        const persistedData = { 
+          scenarios: state.scenarios,
+          userRole: state.userRole
+          // Note: useMockData is NOT persisted - should reset each session
+        };
+        console.log('💾 Persisting to localStorage:', persistedData.scenarios?.length, 'scenarios');
+        return persistedData;
+      },
+      onRehydrateStorage: () => (state) => {
+        console.log('🔄 Rehydrating from localStorage:', state?.scenarios?.length || 0, 'scenarios loaded');
+        if (state?.scenarios) {
+          console.log('📋 Loaded scenario names:', state.scenarios.map(s => s.name));
+        }
+      }
     }
   )
 );
