@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Header } from './components/Header';
 import { OrgChart } from './components/OrgChart';
 import { SearchPanel } from './components/SearchPanel';
@@ -98,6 +98,7 @@ function AppContent() {
   const [showQuickSaveModal, setShowQuickSaveModal] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [pendingAction, setPendingAction] = useState<{ type: string; data?: any } | null>(null);
+  const orgChartRef = useRef<HTMLDivElement>(null);
 
   /**
    * Load initial data
@@ -232,6 +233,19 @@ function AppContent() {
   const executeResetToLive = () => {
     resetToLive();
   };
+
+  const handleTogglePlanningMode = () => {
+    if (isSandboxMode && hasUnsavedChanges) {
+      setPendingAction({ type: 'exitPlanningMode' });
+      setShowConfirmDialog(true);
+      return;
+    }
+    toggleSandboxMode();
+  };
+
+  const executeExitPlanningMode = () => {
+    toggleSandboxMode();
+  };
   
   /**
    * Handle view mode changes
@@ -260,6 +274,9 @@ function AppContent() {
     switch (pendingAction.type) {
       case 'resetToLive':
         executeResetToLive();
+        break;
+      case 'exitPlanningMode':
+        executeExitPlanningMode();
         break;
       case 'viewChange':
         executeViewChange(pendingAction.data);
@@ -386,7 +403,7 @@ function AppContent() {
       {/* Header - Fixed at top */}
       <Header
         isInPlanningMode={isSandboxMode}
-        onTogglePlanningMode={toggleSandboxMode}
+        onTogglePlanningMode={handleTogglePlanningMode}
         onShowScenarios={() => setShowScenarioPanel(true)}
         onShowExport={() => setShowExportModal(true)}
         onResetToLive={handleResetToLive}
@@ -464,7 +481,7 @@ function AppContent() {
         </div>
         
         {/* Main Content Area - With left margin for fixed sidebar */}
-        <div className="flex-1 ml-80">
+        <div ref={orgChartRef} className="flex-1 ml-80">
           {employees.length === 0 && !dataError ? (
             <LoadingOrgChart />
           ) : (
@@ -519,6 +536,7 @@ function AppContent() {
           employees={employees}
           scenario={currentScenario}
           onClose={() => setShowExportModal(false)}
+          orgChartRef={orgChartRef}
         />
       )}
 
@@ -538,6 +556,8 @@ function AppContent() {
           isOpen={showQuickSaveModal}
           onClose={() => setShowQuickSaveModal(false)}
           onSave={handleSaveScenario}
+          onDelete={deleteScenario}
+          scenarios={scenarios}
         />
       )}
 

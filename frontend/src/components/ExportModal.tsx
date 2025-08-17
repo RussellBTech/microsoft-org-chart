@@ -1,18 +1,132 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { X, Download, FileText, Code, Camera } from 'lucide-react';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import type { Employee, Scenario } from '../data/mockData';
 
 interface ExportModalProps {
   employees: Employee[];
   scenario: Scenario | null;
   onClose: () => void;
+  orgChartRef?: React.RefObject<HTMLElement>;
 }
 
-export function ExportModal({ employees, scenario, onClose }: ExportModalProps) {
+export function ExportModal({ employees, scenario, onClose, orgChartRef }: ExportModalProps) {
   const [exportFormat, setExportFormat] = useState<'json' | 'csv' | 'pdf'>('json');
   const [includeImages, setIncludeImages] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  // Handle outside click and escape key
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
+        onClose();
+      }
+    };
+
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscapeKey);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, [onClose]);
+
+  const generatePDF = async (fileName: string) => {
+    if (!orgChartRef?.current) {
+      alert('Org chart not available for PDF export');
+      return;
+    }
+
+    setIsGeneratingPdf(true);
+    
+    try {
+      // Find the org chart container specifically to avoid capturing sidebar
+      const orgChartContainer = orgChartRef.current.querySelector('.org-chart-container') as HTMLElement;
+      const targetElement = orgChartContainer || orgChartRef.current;
+      
+      // Temporarily reset any transforms and get full content size
+      const originalTransform = targetElement.style.transform;
+      const originalOverflow = targetElement.style.overflow;
+      
+      // Reset transform and overflow to capture full content
+      targetElement.style.transform = 'none';
+      targetElement.style.overflow = 'visible';
+      
+      // Configure html2canvas for better quality and full content capture
+      const canvas = await html2canvas(targetElement, {
+        scale: 1, // Use scale 1 to avoid issues with transforms
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        width: targetElement.scrollWidth,
+        height: targetElement.scrollHeight,
+        scrollX: 0,
+        scrollY: 0,
+        foreignObjectRendering: true,
+        removeContainer: false
+      });
+      
+      // Restore original styles
+      targetElement.style.transform = originalTransform;
+      targetElement.style.overflow = originalOverflow;
+
+      // Calculate dimensions for PDF
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      
+      // Use standard page sizes and scale content to fit
+      const isLandscape = imgWidth > imgHeight;
+      const pdf = new jsPDF({
+        orientation: isLandscape ? 'landscape' : 'portrait',
+        unit: 'pt',
+        format: 'a4'
+      });
+
+      // Get PDF page dimensions
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      
+      // Calculate scaling to fit content on page with some margin
+      const margin = 20;
+      const availableWidth = pageWidth - (margin * 2);
+      const availableHeight = pageHeight - (margin * 2);
+      
+      const scaleX = availableWidth / imgWidth;
+      const scaleY = availableHeight / imgHeight;
+      const scale = Math.min(scaleX, scaleY); // Use smaller scale to ensure it fits
+      
+      // Calculate centered position
+      const scaledWidth = imgWidth * scale;
+      const scaledHeight = imgHeight * scale;
+      const x = (pageWidth - scaledWidth) / 2;
+      const y = (pageHeight - scaledHeight) / 2;
+
+      // Add the org chart image scaled to fit
+      const imgData = canvas.toDataURL('image/png');
+      pdf.addImage(imgData, 'PNG', x, y, scaledWidth, scaledHeight);
+
+      // Save the PDF
+      pdf.save(`${fileName}.pdf`);
+      
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Failed to generate PDF. Please try again.');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
   
-  const exportData = () => {
+  const exportData = async () => {
     const timestamp = new Date().toISOString().split('T')[0];
     const fileName = scenario 
       ? `org-chart-${scenario.name}-${timestamp}`
@@ -55,29 +169,7 @@ export function ExportModal({ employees, scenario, onClose }: ExportModalProps) 
       const blob = new Blob([csvContent], { type: 'text/csv' });
       downloadFile(blob, `${fileName}.csv`);
     } else if (exportFormat === 'pdf') {
-      // Simulate PDF generation
-      const pdfContent = `
-        ORG CHART EXPORT
-        ================
-        
-        Export Date: ${new Date().toLocaleDateString()}
-        Scenario: ${scenario?.name || 'Live Data'}
-        Total Employees: ${employees.length}
-        
-        EMPLOYEE LISTING:
-        ${employees.map(emp => `
-        ${emp.name}
-        ${emp.title}
-        ${emp.department}
-        ${emp.email}
-        ${emp.phone || 'No phone'}
-        Manager: ${employees.find(e => e.id === emp.managerId)?.name || 'None'}
-        ---
-        `).join('\n')}
-      `;
-      
-      const blob = new Blob([pdfContent], { type: 'text/plain' });
-      downloadFile(blob, `${fileName}.txt`); // Simulating PDF as text for demo
+      await generatePDF(fileName);
     }
   };
 
@@ -94,7 +186,7 @@ export function ExportModal({ employees, scenario, onClose }: ExportModalProps) 
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+      <div ref={modalRef} className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900">Export Org Chart</h2>
           <button
@@ -151,8 +243,8 @@ export function ExportModal({ employees, scenario, onClose }: ExportModalProps) 
                 />
                 <Camera className="h-5 w-5 text-gray-400" />
                 <div className="flex-1">
-                  <div className="font-medium text-gray-900">PDF Report</div>
-                  <div className="text-sm text-gray-500">Printable organizational chart</div>
+                  <div className="font-medium text-gray-900">PDF Chart</div>
+                  <div className="text-sm text-gray-500">High-resolution visual org chart</div>
                 </div>
               </label>
             </div>
@@ -200,10 +292,20 @@ export function ExportModal({ employees, scenario, onClose }: ExportModalProps) 
           </button>
           <button
             onClick={exportData}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-md transition-colors"
+            disabled={isGeneratingPdf}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-md transition-colors"
           >
-            <Download className="h-4 w-4" />
-            <span>Export</span>
+            {isGeneratingPdf ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span>Generating PDF...</span>
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4" />
+                <span>Export</span>
+              </>
+            )}
           </button>
         </div>
       </div>

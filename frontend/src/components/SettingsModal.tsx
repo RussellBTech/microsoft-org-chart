@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { X, Settings, Key, Globe, Link, Save, AlertCircle, CheckCircle, Trash2 } from 'lucide-react';
 import { AzureConfig } from '../types/azureConfig';
 import { validateConfig, saveConfig, clearConfig } from '../utils/azureConfig';
@@ -28,6 +28,30 @@ export function SettingsModal({
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  // Handle outside click and escape key
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
+        onClose();
+      }
+    };
+
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscapeKey);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, [onClose]);
 
   const handleConfigChange = (field: keyof AzureConfig, value: string) => {
     setConfig(prev => ({ ...prev, [field]: value }));
@@ -68,7 +92,7 @@ export function SettingsModal({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div ref={modalRef} className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 rounded-t-xl">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">

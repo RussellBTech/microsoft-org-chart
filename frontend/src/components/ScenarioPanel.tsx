@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { X, Save, Trash2, Plus, Calendar, User } from 'lucide-react';
 import type { Scenario } from '../data/mockData';
 
@@ -22,6 +22,30 @@ export function ScenarioPanel({
   const [showSaveForm, setShowSaveForm] = useState(false);
   const [scenarioName, setScenarioName] = useState('');
   const [scenarioDescription, setScenarioDescription] = useState('');
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  // Handle outside click and escape key
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (modalRef.current && !modalRef.current.contains(event.target as Node)) {
+        onClose();
+      }
+    };
+
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscapeKey);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, [onClose]);
 
   const handleSave = () => {
     if (scenarioName.trim()) {
@@ -34,7 +58,7 @@ export function ScenarioPanel({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col">
+      <div ref={modalRef} className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900">Scenario Management</h2>
           <button

@@ -141,11 +141,7 @@ export const useOrgStore = create<OrgState>()(
       
       // Planning mode actions
       toggleSandboxMode: () => {
-        const { isSandboxMode, hasUnsavedChanges } = get();
-        if (isSandboxMode && hasUnsavedChanges) {
-          // Should trigger confirmation dialog in UI
-          return;
-        }
+        const { isSandboxMode } = get();
         
         const wasInSandboxMode = isSandboxMode;
         set({ isSandboxMode: !isSandboxMode });
@@ -157,7 +153,8 @@ export const useOrgStore = create<OrgState>()(
             backgroundDataLoaded: false, // This will trigger a reload in App.tsx
             sandboxChanges: new Map(),
             reassignedEmployeeIds: new Set(),
-            hasUnsavedChanges: false
+            hasUnsavedChanges: false,
+            currentScenario: null // Clear current scenario when exiting planning mode
           });
         }
       },
@@ -247,20 +244,44 @@ export const useOrgStore = create<OrgState>()(
       // Scenario actions
       saveScenario: (name, description, createdBy) => {
         const { scenarios, employees } = get();
-        const newScenario: Scenario = {
-          id: Date.now().toString(),
-          name,
-          description,
-          createdAt: new Date(),
-          createdBy,
-          employees: [...employees]
-        };
         
-        set({
-          scenarios: [...scenarios, newScenario],
-          currentScenario: newScenario,
-          hasUnsavedChanges: false
-        });
+        // Check if scenario with same name already exists
+        const existingScenarioIndex = scenarios.findIndex(s => s.name === name);
+        
+        if (existingScenarioIndex >= 0) {
+          // Overwrite existing scenario
+          const updatedScenario: Scenario = {
+            ...scenarios[existingScenarioIndex],
+            description,
+            createdAt: new Date(), // Update timestamp
+            employees: [...employees]
+          };
+          
+          const newScenarios = [...scenarios];
+          newScenarios[existingScenarioIndex] = updatedScenario;
+          
+          set({
+            scenarios: newScenarios,
+            currentScenario: updatedScenario,
+            hasUnsavedChanges: false
+          });
+        } else {
+          // Create new scenario
+          const newScenario: Scenario = {
+            id: Date.now().toString(),
+            name,
+            description,
+            createdAt: new Date(),
+            createdBy,
+            employees: [...employees]
+          };
+          
+          set({
+            scenarios: [...scenarios, newScenario],
+            currentScenario: newScenario,
+            hasUnsavedChanges: false
+          });
+        }
       },
       
       loadScenario: (scenario) => {
