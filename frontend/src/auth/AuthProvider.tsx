@@ -23,6 +23,7 @@ export interface AuthContextType {
   // Authentication state
   status: AuthStatus;
   isAuthenticated: boolean;
+  isAuthReady: boolean; // Ready for API calls (more permissive than isAuthenticated)
   user: AccountInfo | null;
   error: string | null;
   
@@ -77,6 +78,9 @@ export function AuthProvider({ children, initialConfig = null }: AuthProviderPro
   // Derived state
   const isAuthenticated = status === 'authenticated' && user !== null;
   const hasValidConfig = azureConfig !== null && validateMsalConfig(azureConfig).valid;
+  
+  // Check if authentication is ready for API calls (more permissive than isAuthenticated)
+  const isAuthReady = hasValidConfig && (isAuthenticated || (msalInstance && msalInstance.getAllAccounts().length > 0));
 
   /**
    * Initialize or reinitialize MSAL instance when config changes
@@ -302,6 +306,7 @@ export function AuthProvider({ children, initialConfig = null }: AuthProviderPro
     // Authentication state
     status,
     isAuthenticated,
+    isAuthReady,
     user,
     error,
     

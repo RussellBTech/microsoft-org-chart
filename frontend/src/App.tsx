@@ -37,6 +37,7 @@ function AppContent() {
   const { 
     status, 
     isAuthenticated, 
+    isAuthReady,
     user, 
     error: authError,
     azureConfig,
@@ -104,20 +105,20 @@ function AppContent() {
    * Load initial data
    */
   const loadGraphData = useCallback(async () => {
-    await loadCompleteOrgData(getGraphToken, isAuthenticated);
-  }, [loadCompleteOrgData, getGraphToken, isAuthenticated]);
+    await loadCompleteOrgData(getGraphToken, isAuthReady);
+  }, [loadCompleteOrgData, getGraphToken, isAuthReady]);
 
   /**
    * Handle authentication and data loading
    */
   useEffect(() => {
     // Only load initial data if we don't have any employees yet
-    if (AuthStatusHelper.isAuthenticated(status) && hasValidConfig && !useMockData && employees.length === 0) {
+    if (isAuthReady && hasValidConfig && !useMockData && employees.length === 0) {
       loadGraphData();
     } else if (useMockData && employees.length === 0) {
       loadMockData();
     }
-  }, [status, hasValidConfig, useMockData, employees.length, loadGraphData, loadMockData]);
+  }, [isAuthReady, hasValidConfig, useMockData, employees.length, loadGraphData, loadMockData]);
 
   /**
    * Handle context reload when exiting sandbox mode
@@ -210,7 +211,7 @@ function AppContent() {
   };
 
   const handleSearch = async (query: string) => {
-    return await searchEmployees(query, getGraphToken, isAuthenticated);
+    return await searchEmployees(query, getGraphToken, isAuthReady);
   };
 
   const handleSaveScenario = (name: string, description: string) => {
@@ -272,8 +273,8 @@ function AppContent() {
       resetToLive();
     }
     
-    await changeView(newConfig, getGraphToken, isAuthenticated);
-  }, [changeView, getGraphToken, isAuthenticated, hasUnsavedChanges, isSandboxMode, resetToLive]);
+    await changeView(newConfig, getGraphToken, isAuthReady);
+  }, [changeView, getGraphToken, isAuthReady, hasUnsavedChanges, isSandboxMode, resetToLive]);
 
   /**
    * Handle confirmation dialog actions
@@ -318,6 +319,18 @@ function AppContent() {
   // Show loading state during authentication
   if (AuthStatusHelper.isLoading(status)) {
     return <AuthenticatingState />;
+  }
+  
+  // Show loading state if authenticated but not fully ready for API calls
+  if (isAuthenticated && !isAuthReady) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Preparing your workspace...</p>
+        </div>
+      </div>
+    );
   }
   
   // Show data loading state

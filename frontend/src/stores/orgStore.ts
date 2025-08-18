@@ -490,30 +490,41 @@ export const useOrgStore = create<OrgState>()(
           const targetPerson = allEmployees.find(e => e.id === newConfig.centerPersonId);
           
           if (targetPerson) {
-            // Target person is in current dataset - use local data (fast)
-            console.log(`🎯 Target person ${targetPerson.name} found in current dataset - using local data`);
-            set({ viewConfig: newConfig });
+            // Check if they have a complete team context (reports in our dataset)
+            const hasCompleteTeamContext = allEmployees.some(e => e.managerId === targetPerson.id);
             
-            const contextIds = new Set<string>();
-            contextIds.add(targetPerson.id);
-            
-            // Add all their reports recursively
-            const addAllReports = (managerId: string) => {
-              const directReports = allEmployees.filter(e => e.managerId === managerId);
-              directReports.forEach(report => {
-                contextIds.add(report.id);
-                addAllReports(report.id);
+            if (hasCompleteTeamContext) {
+              // Target person is in current dataset with full context - use local data (fast)
+              console.log(`🎯 Target person ${targetPerson.name} found with complete team context - using local data`);
+              set({ viewConfig: newConfig });
+              
+              const contextIds = new Set<string>();
+              contextIds.add(targetPerson.id);
+              
+              // Add all their reports recursively
+              const addAllReports = (managerId: string) => {
+                const directReports = allEmployees.filter(e => e.managerId === managerId);
+                directReports.forEach(report => {
+                  contextIds.add(report.id);
+                  addAllReports(report.id);
+                });
+              };
+              
+              addAllReports(targetPerson.id);
+              const contextEmployees = allEmployees.filter(e => contextIds.has(e.id));
+              
+              set({
+                employees: contextEmployees,
+                baseEmployees: contextEmployees
               });
-            };
-            
-            addAllReports(targetPerson.id);
-            const contextEmployees = allEmployees.filter(e => contextIds.has(e.id));
-            
-            set({
-              employees: contextEmployees,
-              baseEmployees: contextEmployees
-            });
-            return;
+              return;
+            } else {
+              console.log(`🎯 Target person ${targetPerson.name} found but incomplete team context - fetching full hierarchy`);
+              // Fall through to getContextForUser call below
+            }
+          } else {
+            console.log(`🎯 Target person ${newConfig.centerPersonId} not in current dataset - fetching from Graph API`);
+            // Fall through to getContextForUser call below
           }
           
           // Check if target person exists as manager info in any current employee
@@ -669,7 +680,8 @@ export const useOrgStore = create<OrgState>()(
               );
               
               if (contextEmployees.length === 0) {
-                throw new Error(`No context found for user ${newConfig.centerPersonId}`);
+                console.log(`⚠️ No context found for user ${newConfig.centerPersonId} - continuing with empty context`);
+                // Don't throw error - let the view handle empty context gracefully
               }
               
               console.log(`✅ Loaded ${contextEmployees.length} employees for user context`);
@@ -686,12 +698,9 @@ export const useOrgStore = create<OrgState>()(
           } catch (error) {
             console.error('🚨 Graph API failed, showing error to user:', error);
             
-            // Show a specific message for manager access issues
-            const errorMessage = error.message?.includes('No context found') 
-              ? `${newConfig.searchQuery || 'User'} is outside your organizational access scope. You can only navigate within your team hierarchy.`
-              : `Unable to load ${newConfig.searchQuery || 'user context'}: ${getApiErrorMessage(error)}`;
+            // Show error for failures
+            const errorMessage = `Unable to load ${newConfig.searchQuery || 'user context'}: ${getApiErrorMessage(error)}`;
             
-            // Show a user-friendly error and revert to previous view
             set({ 
               dataError: errorMessage,
               viewConfig: { mode: 'my-view', centerPersonId: currentUser?.id },
@@ -699,7 +708,6 @@ export const useOrgStore = create<OrgState>()(
               loadingType: null
             });
             
-            // Keep current employees unchanged so user doesn't lose their view
             return;
           } finally {
             set({ isLoadingData: false, loadingType: null });
@@ -724,7 +732,7 @@ export const useOrgStore = create<OrgState>()(
           return contextCache.get(userId)!;
         }
         
-        if (!isAuthenticated || useMockData) {
+        if (useMockData) {
           // Mock data fallback - use existing allEmployees (already has manager info)
           const user = allEmployees.find(e => e.id === userId);
           if (user) {
@@ -883,6 +891,17 @@ export const useOrgStore = create<OrgState>()(
               }
             } catch (userError) {
               console.log(`Could not load user ${userId}:`, userError);
+              
+              // FINAL FALLBACK: Create a basic user object if we have the ID
+              // This ensures we always return SOMETHING rather than empty array
+              console.log(`🔄 Creating basic user object for ${userId} as absolute fallback`);
+              contextEmployees = [{
+                id: userId,
+                name: `User ${userId}`,
+                title: 'External User',
+                department: 'External',
+                email: `${userId}@external.com`
+              }];
             }
           }
           
