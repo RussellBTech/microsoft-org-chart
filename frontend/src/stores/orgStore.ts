@@ -482,14 +482,8 @@ export const useOrgStore = create<OrgState>()(
       
       changeView: async (newConfig, getGraphToken, isAuthenticated) => {
         console.log('🔄 changeView called with:', newConfig);
-        const { hasUnsavedChanges, isSandboxMode, useMockData, allEmployees, currentUser, dataSource } = get();
-        console.log('🔄 changeView state:', { hasUnsavedChanges, isSandboxMode, useMockData, isAuthenticated, dataSource });
-        
-        // Check for unsaved changes
-        if (hasUnsavedChanges && isSandboxMode) {
-          // Should trigger confirmation dialog in UI
-          return;
-        }
+        const { useMockData, allEmployees, currentUser, dataSource } = get();
+        console.log('🔄 changeView state:', { useMockData, isAuthenticated, dataSource });
         
         // Smart routing: check if target person is in current dataset first
         if (newConfig.mode === 'search' && newConfig.centerPersonId) {

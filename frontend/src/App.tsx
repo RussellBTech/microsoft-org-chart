@@ -251,25 +251,37 @@ function AppContent() {
    * Handle view mode changes
    */
   const handleViewChange = useCallback(async (newConfig: typeof viewConfig) => {
+    console.log('🔄 handleViewChange called:', { newConfig, hasUnsavedChanges, isSandboxMode });
+    
     // Check for unsaved changes before switching views
     if (hasUnsavedChanges && isSandboxMode) {
+      console.log('⚠️ Unsaved changes detected - showing confirmation dialog');
       setPendingAction({ type: 'viewChange', data: newConfig });
       setShowConfirmDialog(true);
       return;
     }
     
+    console.log('✅ No unsaved changes - proceeding with view change');
     await executeViewChange(newConfig);
   }, [hasUnsavedChanges, isSandboxMode, viewConfig]);
 
   const executeViewChange = useCallback(async (newConfig: typeof viewConfig) => {
+    // If we had unsaved changes, discard them first
+    if (hasUnsavedChanges && isSandboxMode) {
+      console.log('🔄 Discarding unsaved changes before view change');
+      resetToLive();
+    }
+    
     await changeView(newConfig, getGraphToken, isAuthenticated);
-  }, [changeView, getGraphToken, isAuthenticated]);
+  }, [changeView, getGraphToken, isAuthenticated, hasUnsavedChanges, isSandboxMode, resetToLive]);
 
   /**
    * Handle confirmation dialog actions
    */
   const handleConfirmAction = () => {
     if (!pendingAction) return;
+    
+    console.log('✅ User confirmed action:', pendingAction.type, pendingAction.data);
     
     switch (pendingAction.type) {
       case 'resetToLive':
@@ -279,6 +291,7 @@ function AppContent() {
         executeExitPlanningMode();
         break;
       case 'viewChange':
+        console.log('🔄 Executing pending view change after confirmation');
         executeViewChange(pendingAction.data);
         break;
       default:
