@@ -5,13 +5,12 @@ import { SearchPanel } from './components/SearchPanel';
 import { ScenarioPanel } from './components/ScenarioPanel';
 import { EmployeeModal } from './components/EmployeeModal';
 import { ExportModal } from './components/ExportModal';
-import { SetupWizard } from './components/SetupWizard';
 import { SettingsModal } from './components/SettingsModal';
 import { ViewModeSelector } from './components/ViewModeSelector';
 import { QuickSaveModal } from './components/QuickSaveModal';
 import { ConfirmationDialog } from './components/ConfirmationDialog';
 import { useOrgStore } from './stores/orgStore';
-import { getStoredConfig, getConfigFromEnv, clearConfig } from './utils/azureConfig';
+import { getStoredConfig, getConfigFromEnv } from './utils/azureConfig';
 import { AzureConfig } from './types/azureConfig';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { 
@@ -34,18 +33,17 @@ import {
  */
 function AppContent() {
   // Authentication hooks
-  const { 
-    status, 
-    isAuthenticated, 
+  const {
+    status,
+    isAuthenticated,
     isAuthReady,
-    user, 
+    user,
     error: authError,
     azureConfig,
     hasValidConfig,
     login,
     logout,
-    clearError: clearAuthError,
-    setAzureConfig
+    clearError: clearAuthError
   } = useAuth();
   const getGraphToken = useGraphToken();
 
@@ -73,9 +71,7 @@ function AppContent() {
     userRole,
     
     // Actions
-    setEmployees,
     setDataError,
-    setDataSource,
     toggleSandboxMode,
     updateEmployee,
     reassignEmployee,
@@ -86,10 +82,8 @@ function AppContent() {
     setSearchTerm,
     setSelectedEmployee,
     loadCompleteOrgData,
-    loadMockData,
     searchEmployees,
-    changeView,
-    resetMockDataFlag
+    changeView
   } = useOrgStore();
   
   // UI state (not managed by store)
@@ -115,10 +109,8 @@ function AppContent() {
     // Only load initial data if we don't have any employees yet
     if (isAuthReady && hasValidConfig && !useMockData && employees.length === 0) {
       loadGraphData();
-    } else if (useMockData && employees.length === 0) {
-      loadMockData();
     }
-  }, [isAuthReady, hasValidConfig, useMockData, employees.length, loadGraphData, loadMockData]);
+  }, [isAuthReady, hasValidConfig, useMockData, employees.length, loadGraphData]);
 
   /**
    * Handle context reload when exiting sandbox mode
@@ -126,13 +118,11 @@ function AppContent() {
   useEffect(() => {
     // Reload data when backgroundDataLoaded flag is reset (happens when exiting sandbox mode)
     if (!backgroundDataLoaded && employees.length > 0) {
-      if (useMockData) {
-        loadMockData();
-      } else if (AuthStatusHelper.isAuthenticated(status) && hasValidConfig) {
+      if (AuthStatusHelper.isAuthenticated(status) && hasValidConfig) {
         loadGraphData();
       }
     }
-  }, [backgroundDataLoaded, employees.length, useMockData, status, hasValidConfig, loadGraphData, loadMockData]);
+  }, [backgroundDataLoaded, employees.length, status, hasValidConfig, loadGraphData]);
 
   /**
    * Handle authentication-related actions
@@ -141,39 +131,12 @@ function AppContent() {
     try {
       clearAuthError();
       setDataError(null);
-      // Reset mock data flag when attempting to authenticate
-      if (useMockData) {
-        resetMockDataFlag();
-      }
       await login();
     } catch (error) {
       console.error('Login failed:', error);
     }
   };
 
-  const handleUseMockData = () => {
-    loadMockData();
-  };
-
-  const handleConfigUpdate = async (config: AzureConfig) => {
-    // Update AuthProvider configuration to trigger MSAL reinitialization
-    await setAzureConfig(config);
-    setDataError(null);
-  };
-
-  const handleSwitchToMockData = () => {
-    loadMockData();
-  };
-
-  const handleResetConfig = async () => {
-    clearConfig();
-    // Clear authentication state
-    await setAzureConfig(null);
-    
-    setEmployees([]);
-    setDataSource(null);
-    setDataError(null);
-  };
 
   /**
    * Handle data retry
@@ -181,11 +144,9 @@ function AppContent() {
   const handleRetryData = () => {
     // Clear any existing error state
     setDataError(null);
-    
-    if (isAuthenticated && !useMockData) {
+
+    if (isAuthenticated) {
       loadGraphData();
-    } else {
-      loadMockData();
     }
   };
 
@@ -354,31 +315,37 @@ function AppContent() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="max-w-md w-full">
-          <AuthError 
+          <AuthError
             error={authError}
             onRetry={handleLogin}
             onDismiss={clearAuthError}
           />
-          <div className="mt-4 text-center">
-            <button
-              onClick={handleUseMockData}
-              className="text-blue-600 hover:text-blue-700 text-sm underline"
-            >
-              Continue with demo data instead
-            </button>
-          </div>
         </div>
       </div>
     );
   }
 
-  // Show setup wizard if no valid config and not using mock data
+  // Show configuration error if no valid config
   if (!hasValidConfig && !useMockData) {
     return (
-      <SetupWizard 
-        onComplete={handleConfigUpdate}
-        onUseMockData={handleUseMockData}
-      />
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-8 text-center">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mb-4">
+            <svg className="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            Configuration Required
+          </h2>
+          <p className="text-gray-600 mb-4">
+            Azure AD credentials are not configured. Please contact your administrator to set up the environment variables.
+          </p>
+          <p className="text-sm text-gray-500">
+            Required: VITE_AZURE_CLIENT_ID, VITE_AZURE_TENANT_ID, VITE_AZURE_REDIRECT_URI
+          </p>
+        </div>
+      </div>
     );
   }
 
@@ -394,7 +361,7 @@ function AppContent() {
               </svg>
             </div>
             <h2 className="text-2xl font-bold text-gray-900 mb-2">
-              Welcome Back
+              Welcome
             </h2>
             <p className="text-gray-600 mb-6">
               Sign in to access your organization chart
@@ -405,14 +372,6 @@ function AppContent() {
             >
               Sign in with Microsoft
             </button>
-            <div className="mt-6 pt-6 border-t border-gray-200">
-              <button
-                onClick={handleUseMockData}
-                className="text-gray-600 hover:text-gray-700 text-sm underline"
-              >
-                Continue with demo data
-              </button>
-            </div>
             {azureConfig && (
               <div className="mt-4 text-xs text-gray-500">
                 Connected to: {azureConfig.tenantId}
@@ -433,7 +392,6 @@ function AppContent() {
         onShowScenarios={() => setShowScenarioPanel(true)}
         onShowExport={() => setShowExportModal(true)}
         onResetToLive={handleResetToLive}
-        onResetConfig={handleResetConfig}
         onShowSettings={() => setShowSettingsModal(true)}
         onQuickSave={() => setShowQuickSaveModal(true)}
         userRole={userRole}
@@ -571,9 +529,6 @@ function AppContent() {
           currentConfig={azureConfig}
           isUsingMockData={useMockData}
           onClose={() => setShowSettingsModal(false)}
-          onConfigUpdate={handleConfigUpdate}
-          onSwitchToMockData={handleSwitchToMockData}
-          onClearConfig={handleResetConfig}
         />
       )}
 

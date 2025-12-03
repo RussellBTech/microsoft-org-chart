@@ -8,7 +8,6 @@ interface HeaderProps {
   onShowScenarios: () => void;
   onShowExport: () => void;
   onResetToLive: () => void;
-  onResetConfig: () => void;
   onShowSettings: () => void;
   onQuickSave?: () => void;
   userRole: 'admin' | 'manager' | 'assistant';
