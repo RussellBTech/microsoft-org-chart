@@ -42,6 +42,7 @@ interface OrgState {
   // Scenarios
   scenarios: Scenario[];
   currentScenario: Scenario | null;
+  isSavingScenario: boolean; // Prevents race conditions in rapid saves
   
   // View state
   viewConfig: ViewConfig;
@@ -53,6 +54,7 @@ interface OrgState {
   isLoadingBackground: boolean;
   loadingType: LoadingType;
   dataError: string | null;
+  dataWarning: string | null; // Non-blocking warnings (e.g., stale baseline)
   dataSource: DataSource;
   backgroundDataLoaded: boolean;
   
@@ -85,6 +87,8 @@ interface OrgState {
   // Loading actions
   setLoadingState: (isLoading: boolean, type?: LoadingType) => void;
   setDataError: (error: string | null) => void;
+  setDataWarning: (warning: string | null) => void;
+  clearDataWarning: () => void;
   setDataSource: (source: DataSource) => void;
   resetMockDataFlag: () => void;
   
@@ -118,6 +122,7 @@ export const useOrgStore = create<OrgState>()(
       
       scenarios: [],
       currentScenario: null,
+      isSavingScenario: false,
       
       viewConfig: { mode: 'my-view' },
       searchTerm: '',
@@ -127,6 +132,7 @@ export const useOrgStore = create<OrgState>()(
       isLoadingBackground: false,
       loadingType: null,
       dataError: null,
+      dataWarning: null,
       dataSource: null,
       backgroundDataLoaded: false,
       
@@ -162,11 +168,20 @@ export const useOrgStore = create<OrgState>()(
       updateEmployee: (updatedEmployee) => {
         const { isSandboxMode, baseEmployees, employees, sandboxChanges, reassignedEmployeeIds } = get();
         if (!isSandboxMode) return;
-        
-        const originalEmployee = baseEmployees.find(emp => emp.id === updatedEmployee.id);
+
+        const currentEmployee = employees.find(emp => emp.id === updatedEmployee.id);
+        let originalEmployee = baseEmployees.find(emp => emp.id === updatedEmployee.id);
         const newSandboxChanges = new Map(sandboxChanges);
         const newReassignedIds = new Set(reassignedEmployeeIds);
-        
+
+        // If employee not in baseline, add them now to prevent divergence
+        let updatedBaseEmployees = baseEmployees;
+        if (!originalEmployee && currentEmployee) {
+          console.log(`📋 Adding employee ${updatedEmployee.id} to baseline for accurate tracking`);
+          originalEmployee = { ...currentEmployee };
+          updatedBaseEmployees = [...baseEmployees, originalEmployee];
+        }
+
         // Check if manager changed and update reassigned status accordingly
         if (originalEmployee) {
           if (originalEmployee.managerId !== updatedEmployee.managerId) {
@@ -177,15 +192,16 @@ export const useOrgStore = create<OrgState>()(
             newReassignedIds.delete(updatedEmployee.id);
           }
         }
-        
+
         newSandboxChanges.set(updatedEmployee.id, updatedEmployee);
-        
-        const newEmployees = employees.map(emp => 
+
+        const newEmployees = employees.map(emp =>
           emp.id === updatedEmployee.id ? updatedEmployee : emp
         );
-        
+
         set({
           employees: newEmployees,
+          baseEmployees: updatedBaseEmployees,
           sandboxChanges: newSandboxChanges,
           reassignedEmployeeIds: newReassignedIds,
           hasUnsavedChanges: true
@@ -195,34 +211,43 @@ export const useOrgStore = create<OrgState>()(
       reassignEmployee: (employeeId, newManagerId) => {
         const { isSandboxMode, employees, baseEmployees, sandboxChanges, reassignedEmployeeIds } = get();
         if (!isSandboxMode) return;
-        
+
         const currentEmployee = employees.find(emp => emp.id === employeeId);
-        const originalEmployee = baseEmployees.find(emp => emp.id === employeeId);
+        let originalEmployee = baseEmployees.find(emp => emp.id === employeeId);
         if (!currentEmployee) return;
-        
+
+        // If employee not in baseline, add them now to prevent divergence
+        // This ensures accurate reassignment tracking going forward
+        let updatedBaseEmployees = baseEmployees;
+        if (!originalEmployee) {
+          console.log(`📋 Adding employee ${employeeId} to baseline for accurate tracking`);
+          // Use their current state (before this change) as the baseline
+          originalEmployee = { ...currentEmployee };
+          updatedBaseEmployees = [...baseEmployees, originalEmployee];
+        }
+
         const updatedEmployee = { ...currentEmployee, managerId: newManagerId };
         const newSandboxChanges = new Map(sandboxChanges);
         const newReassignedIds = new Set(reassignedEmployeeIds);
-        
+
         // Check if employee is being moved back to original position or to a new one
-        if (originalEmployee) {
-          if (originalEmployee.managerId !== newManagerId) {
-            // Employee is moved to a different manager than original
-            newReassignedIds.add(employeeId);
-          } else {
-            // Employee is moved back to original manager
-            newReassignedIds.delete(employeeId);
-          }
+        if (originalEmployee.managerId !== newManagerId) {
+          // Employee is moved to a different manager than original
+          newReassignedIds.add(employeeId);
+        } else {
+          // Employee is moved back to original manager
+          newReassignedIds.delete(employeeId);
         }
-        
+
         newSandboxChanges.set(employeeId, updatedEmployee);
-        
+
         const newEmployees = employees.map(emp =>
           emp.id === employeeId ? updatedEmployee : emp
         );
-        
+
         set({
           employees: newEmployees,
+          baseEmployees: updatedBaseEmployees,
           sandboxChanges: newSandboxChanges,
           reassignedEmployeeIds: newReassignedIds,
           hasUnsavedChanges: true
@@ -243,64 +268,130 @@ export const useOrgStore = create<OrgState>()(
       
       // Scenario actions
       saveScenario: (name, description, createdBy) => {
-        const { scenarios, employees } = get();
-        
-        // Debug logging for production troubleshooting
-        console.log('💾 Saving scenario:', { name, description, createdBy });
-        console.log('📋 Current scenarios in state:', scenarios.length, scenarios.map(s => s.name));
-        console.log('👥 Current employees:', employees.length);
-        
-        // Check if scenario with same name already exists
-        const existingScenarioIndex = scenarios.findIndex(s => s.name === name);
-        
-        if (existingScenarioIndex >= 0) {
-          // Overwrite existing scenario
-          console.log('🔄 Overwriting existing scenario at index:', existingScenarioIndex);
-          const updatedScenario: Scenario = {
-            ...scenarios[existingScenarioIndex],
-            description,
-            createdAt: new Date(), // Update timestamp
-            employees: [...employees]
-          };
-          
-          const newScenarios = [...scenarios];
-          newScenarios[existingScenarioIndex] = updatedScenario;
-          
-          console.log('✅ Updated scenarios array:', newScenarios.length, newScenarios.map(s => s.name));
-          
-          set({
-            scenarios: newScenarios,
-            currentScenario: updatedScenario,
-            hasUnsavedChanges: false
-          });
-        } else {
-          // Create new scenario
-          console.log('➕ Creating new scenario');
-          const newScenario: Scenario = {
-            id: Date.now().toString(),
-            name,
-            description,
-            createdAt: new Date(),
-            createdBy,
-            employees: [...employees]
-          };
-          
-          const newScenarios = [...scenarios, newScenario];
-          console.log('✅ New scenarios array:', newScenarios.length, newScenarios.map(s => s.name));
-          
-          set({
-            scenarios: newScenarios,
-            currentScenario: newScenario,
-            hasUnsavedChanges: false
-          });
+        const { scenarios, employees, reassignedEmployeeIds, isSavingScenario } = get();
+
+        // Prevent race conditions from rapid saves
+        if (isSavingScenario) {
+          console.log('⚠️ Save already in progress, ignoring duplicate request');
+          return;
+        }
+
+        set({ isSavingScenario: true });
+
+        try {
+          // Debug logging for production troubleshooting
+          console.log('💾 Saving scenario:', { name, description, createdBy });
+          console.log('📋 Current scenarios in state:', scenarios.length, scenarios.map(s => s.name));
+          console.log('👥 Current employees:', employees.length);
+          console.log('🔄 Reassigned employees:', reassignedEmployeeIds.size);
+
+          // Deep clone employees to prevent reference mutations affecting saved scenarios
+          const deepClonedEmployees = employees.map(emp => ({
+            ...emp,
+            managerInfo: emp.managerInfo ? { ...emp.managerInfo } : undefined
+          }));
+
+          // Convert Set to Array for JSON serialization
+          const reassignedIdsArray = Array.from(reassignedEmployeeIds);
+
+          // Check if scenario with same name already exists
+          const existingScenarioIndex = scenarios.findIndex(s => s.name === name);
+
+          if (existingScenarioIndex >= 0) {
+            // Overwrite existing scenario
+            console.log('🔄 Overwriting existing scenario at index:', existingScenarioIndex);
+            const updatedScenario: Scenario = {
+              ...scenarios[existingScenarioIndex],
+              description,
+              createdAt: new Date(), // Update timestamp
+              employees: deepClonedEmployees,
+              reassignedEmployeeIds: reassignedIdsArray
+            };
+
+            const newScenarios = [...scenarios];
+            newScenarios[existingScenarioIndex] = updatedScenario;
+
+            console.log('✅ Updated scenarios array:', newScenarios.length, newScenarios.map(s => s.name));
+
+            set({
+              scenarios: newScenarios,
+              currentScenario: updatedScenario,
+              hasUnsavedChanges: false,
+              isSavingScenario: false
+            });
+          } else {
+            // Create new scenario
+            console.log('➕ Creating new scenario');
+            const newScenario: Scenario = {
+              id: Date.now().toString(),
+              name,
+              description,
+              createdAt: new Date(),
+              createdBy,
+              employees: deepClonedEmployees,
+              reassignedEmployeeIds: reassignedIdsArray
+            };
+
+            const newScenarios = [...scenarios, newScenario];
+            console.log('✅ New scenarios array:', newScenarios.length, newScenarios.map(s => s.name));
+
+            set({
+              scenarios: newScenarios,
+              currentScenario: newScenario,
+              hasUnsavedChanges: false,
+              isSavingScenario: false
+            });
+          }
+        } catch (error) {
+          console.error('❌ Error saving scenario:', error);
+          set({ isSavingScenario: false });
         }
       },
       
       loadScenario: (scenario) => {
+        // Validate scenario integrity before loading
+        if (!scenario.employees || scenario.employees.length === 0) {
+          console.error('❌ Cannot load scenario: no employees data');
+          set({ dataError: 'Cannot load scenario: no employees data' });
+          return;
+        }
+
+        // Check all employees have valid IDs
+        const invalidEmployees = scenario.employees.filter(emp => !emp.id);
+        if (invalidEmployees.length > 0) {
+          console.error('❌ Cannot load scenario: some employees missing IDs');
+          set({ dataError: 'Cannot load scenario: corrupted employee data (missing IDs)' });
+          return;
+        }
+
+        // Check manager references are valid (warn but don't block)
+        const validIds = new Set(scenario.employees.map(e => e.id));
+        const orphanedEmployees = scenario.employees.filter(emp =>
+          emp.managerId && !validIds.has(emp.managerId)
+        );
+        if (orphanedEmployees.length > 0) {
+          console.warn(`⚠️ Scenario has ${orphanedEmployees.length} employees with invalid manager references`);
+        }
+
+        // Deep clone employees to prevent reference mutations
+        const clonedEmployees = scenario.employees.map(emp => ({
+          ...emp,
+          managerInfo: emp.managerInfo ? { ...emp.managerInfo } : undefined
+        }));
+
+        // Restore reassignedEmployeeIds from scenario (convert array back to Set)
+        const restoredReassignedIds = new Set(scenario.reassignedEmployeeIds || []);
+        console.log('📂 Loading scenario with', restoredReassignedIds.size, 'reassigned employees');
+
         set({
-          employees: [...scenario.employees],
+          employees: clonedEmployees,
+          baseEmployees: clonedEmployees, // Sync baseEmployees to scenario state
           currentScenario: scenario,
-          isSandboxMode: true
+          isSandboxMode: true,
+          sandboxChanges: new Map(), // Clear any pending changes
+          reassignedEmployeeIds: restoredReassignedIds, // Restore reassignment tracking from saved scenario
+          hasUnsavedChanges: false, // No changes yet in this loaded scenario
+          dataError: null // Clear any previous errors
         });
       },
       
@@ -322,6 +413,8 @@ export const useOrgStore = create<OrgState>()(
         loadingType: isLoading ? type : null 
       }),
       setDataError: (error) => set({ dataError: error }),
+      setDataWarning: (warning) => set({ dataWarning: warning }),
+      clearDataWarning: () => set({ dataWarning: null }),
       setDataSource: (source) => set({ dataSource: source }),
       resetMockDataFlag: () => set({ useMockData: false, employees: [], allEmployees: [] }),
       
@@ -515,7 +608,8 @@ export const useOrgStore = create<OrgState>()(
               
               set({
                 employees: contextEmployees,
-                baseEmployees: contextEmployees
+                baseEmployees: contextEmployees,
+                currentScenario: null // Clear scenario when view changes
               });
               return;
             } else {
@@ -547,7 +641,8 @@ export const useOrgStore = create<OrgState>()(
               };
               set({
                 employees: [managerAsEmployee],
-                baseEmployees: [managerAsEmployee]
+                baseEmployees: [managerAsEmployee],
+                currentScenario: null // Clear scenario when view changes
               });
               return;
             }
@@ -600,7 +695,8 @@ export const useOrgStore = create<OrgState>()(
                 set({
                   employees: managerEmployees,
                   baseEmployees: managerEmployees,
-                  allEmployees: managerEmployees
+                  allEmployees: managerEmployees,
+                  currentScenario: null // Clear scenario when view changes
                 });
                 return;
                 
@@ -642,7 +738,8 @@ export const useOrgStore = create<OrgState>()(
             
             set({
               employees: contextEmployees,
-              baseEmployees: contextEmployees
+              baseEmployees: contextEmployees,
+              currentScenario: null // Clear scenario when view changes
             });
           }
           return;
@@ -685,10 +782,11 @@ export const useOrgStore = create<OrgState>()(
               }
               
               console.log(`✅ Loaded ${contextEmployees.length} employees for user context`);
-              
+
               set({
                 employees: contextEmployees,
-                baseEmployees: contextEmployees
+                baseEmployees: contextEmployees,
+                currentScenario: null // Clear scenario when view changes
               });
             } else if (newConfig.mode === 'my-view') {
               const updatedConfig = { ...newConfig, centerPersonId: currentUser?.id };

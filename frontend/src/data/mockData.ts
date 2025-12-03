@@ -34,6 +34,7 @@ export interface Scenario {
   createdAt: Date;
   createdBy: string;
   employees: Employee[];
+  reassignedEmployeeIds?: string[]; // Track which employees were moved from original positions
 }
 
 export const mockEmployees: Employee[] = [
