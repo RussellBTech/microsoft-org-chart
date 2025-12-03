@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Download, FileText, Code, Camera } from 'lucide-react';
+import { X, Download, FileText, Code, Camera, Share2 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import type { Employee, Scenario } from '../data/mockData';
@@ -12,7 +12,7 @@ interface ExportModalProps {
 }
 
 export function ExportModal({ employees, scenario, onClose, orgChartRef }: ExportModalProps) {
-  const [exportFormat, setExportFormat] = useState<'json' | 'csv' | 'pdf'>('json');
+  const [exportFormat, setExportFormat] = useState<'json' | 'csv' | 'lucidchart' | 'pdf'>('lucidchart');
   const [includeImages, setIncludeImages] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -126,9 +126,27 @@ export function ExportModal({ employees, scenario, onClose, orgChartRef }: Expor
     }
   };
   
+  // Helper to get manager name by ID
+  const getManagerName = (managerId: string | undefined): string => {
+    if (!managerId) return '';
+    const manager = employees.find(emp => emp.id === managerId);
+    return manager?.name || '';
+  };
+
+  // Helper to escape CSV values
+  const escapeCSV = (value: string | undefined): string => {
+    if (!value) return '';
+    // Escape quotes and wrap in quotes if contains comma, quote, or newline
+    const escaped = value.replace(/"/g, '""');
+    if (escaped.includes(',') || escaped.includes('"') || escaped.includes('\n')) {
+      return `"${escaped}"`;
+    }
+    return escaped;
+  };
+
   const exportData = async () => {
     const timestamp = new Date().toISOString().split('T')[0];
-    const fileName = scenario 
+    const fileName = scenario
       ? `org-chart-${scenario.name}-${timestamp}`
       : `org-chart-${timestamp}`;
 
@@ -168,6 +186,26 @@ export function ExportModal({ employees, scenario, onClose, orgChartRef }: Expor
 
       const blob = new Blob([csvContent], { type: 'text/csv' });
       downloadFile(blob, `${fileName}.csv`);
+    } else if (exportFormat === 'lucidchart') {
+      // Lucidchart org chart CSV format
+      // Required: Name, Title, Reports To (manager's name)
+      // Optional: Email, Department, Phone, Location, etc.
+      const headers = ['Name', 'Title', 'Reports To', 'Email', 'Department', 'Phone', 'Location'];
+      const csvContent = [
+        headers.join(','),
+        ...employees.map(emp => [
+          escapeCSV(emp.name),
+          escapeCSV(emp.title),
+          escapeCSV(getManagerName(emp.managerId)),
+          escapeCSV(emp.email),
+          escapeCSV(emp.department),
+          escapeCSV(emp.phone),
+          escapeCSV(emp.location)
+        ].join(','))
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      downloadFile(blob, `${fileName}-lucidchart.csv`);
     } else if (exportFormat === 'pdf') {
       await generatePDF(fileName);
     }
@@ -221,6 +259,21 @@ export function ExportModal({ employees, scenario, onClose, orgChartRef }: Expor
               <label className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
                 <input
                   type="radio"
+                  value="lucidchart"
+                  checked={exportFormat === 'lucidchart'}
+                  onChange={(e) => setExportFormat(e.target.value as 'lucidchart')}
+                  className="text-blue-600 focus:ring-blue-500"
+                />
+                <Share2 className="h-5 w-5 text-gray-400" />
+                <div className="flex-1">
+                  <div className="font-medium text-gray-900">Lucidchart</div>
+                  <div className="text-sm text-gray-500">Import directly into Lucidchart org charts</div>
+                </div>
+              </label>
+
+              <label className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="radio"
                   value="csv"
                   checked={exportFormat === 'csv'}
                   onChange={(e) => setExportFormat(e.target.value as 'csv')}
@@ -229,10 +282,10 @@ export function ExportModal({ employees, scenario, onClose, orgChartRef }: Expor
                 <FileText className="h-5 w-5 text-gray-400" />
                 <div className="flex-1">
                   <div className="font-medium text-gray-900">CSV</div>
-                  <div className="text-sm text-gray-500">Spreadsheet-compatible format</div>
+                  <div className="text-sm text-gray-500">Generic spreadsheet format</div>
                 </div>
               </label>
-              
+
               <label className="flex items-center space-x-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer">
                 <input
                   type="radio"
@@ -263,6 +316,16 @@ export function ExportModal({ employees, scenario, onClose, orgChartRef }: Expor
               </label>
               <p className="text-xs text-gray-500 mt-1">
                 May increase file size significantly
+              </p>
+            </div>
+          )}
+
+          {exportFormat === 'lucidchart' && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm text-blue-800">
+                <strong>Import Instructions:</strong> In Lucidchart, go to{' '}
+                <span className="font-mono bg-blue-100 px-1 rounded">File → Import Data → Org Chart</span>{' '}
+                and select this CSV file.
               </p>
             </div>
           )}
