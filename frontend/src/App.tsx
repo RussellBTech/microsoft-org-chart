@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Header } from './components/Header';
 import { OrgChart } from './components/OrgChart';
-import { SearchPanel } from './components/SearchPanel';
 import { ScenarioPanel } from './components/ScenarioPanel';
 import { EmployeeModal } from './components/EmployeeModal';
 import { ExportModal } from './components/ExportModal';
@@ -68,10 +67,9 @@ function AppContent() {
     scenarios,
     currentScenario,
     viewConfig,
-    searchTerm,
     selectedEmployee,
     userRole,
-    
+
     // Actions
     setDataError,
     toggleSandboxMode,
@@ -81,7 +79,6 @@ function AppContent() {
     saveScenario,
     loadScenario,
     deleteScenario,
-    setSearchTerm,
     setSelectedEmployee,
     loadCompleteOrgData,
     searchEmployees,
@@ -171,11 +168,6 @@ function AppContent() {
   };
 
   // Employee management handlers
-  const filteredEmployees = employees.filter(emp =>
-    emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    emp.title.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
   const handleEmployeeUpdate = (updatedEmployee: any) => {
     updateEmployee(updatedEmployee);
   };
@@ -480,35 +472,13 @@ function AppContent() {
       
       {/* Main Layout - Proper spacing after sticky navigation */}
       <div className="flex min-h-screen" style={{ paddingTop: '168px' }}>
-        {/* Left Sidebar - Fixed, positioned after sticky nav */}
-        <div className="fixed left-0 z-20 bg-white border-r border-gray-200 w-80" 
-             style={{
-               top: '168px', // Start after header + nav elements
-               height: 'calc(100vh - 168px)'
-             }}>
-          <SearchPanel
-            searchTerm={searchTerm}
-            onSearchChange={setSearchTerm}
-            employees={filteredEmployees}
-            onEmployeeSelect={(employee) => {
-              // Use the same navigation pattern as top nav search
-              handleViewChange({
-                mode: 'search',
-                centerPersonId: employee.id,
-                searchQuery: employee.name
-              });
-            }}
-          />
-        </div>
-        
-        {/* Main Content Area - With left margin for fixed sidebar */}
-        <div ref={orgChartRef} className="flex-1 ml-80">
+        {/* Main Content Area - Full width */}
+        <div ref={orgChartRef} className="flex-1">
           {employees.length === 0 && !dataError ? (
             <LoadingOrgChart />
           ) : (
             <OrgChart
               employees={employees}
-              searchTerm={searchTerm}
               isSandboxMode={isSandboxMode}
               centerPersonId={viewConfig.centerPersonId}
               movedEmployeeIds={reassignedEmployeeIds}

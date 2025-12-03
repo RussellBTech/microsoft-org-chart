@@ -5,7 +5,6 @@ import type { Employee } from '../data/mockData';
 
 interface OrgChartProps {
   employees: Employee[];
-  searchTerm: string;
   isSandboxMode: boolean;
   centerPersonId?: string;
   movedEmployeeIds: Set<string>;
@@ -156,7 +155,6 @@ function DynamicConnectionLines({
 
 export function OrgChart({
   employees,
-  searchTerm,
   isSandboxMode,
   centerPersonId,
   movedEmployeeIds,
@@ -182,7 +180,7 @@ export function OrgChart({
   useEffect(() => {
     const timeoutId = setTimeout(measureNodes, 100);
     return () => clearTimeout(timeoutId);
-  }, [measureNodes, employees, nodeDisplayModes, searchTerm]);
+  }, [measureNodes, employees, nodeDisplayModes]);
 
   // Additional trigger for sandbox mode changes (employee reassignments)
   useEffect(() => {
@@ -505,10 +503,6 @@ export function OrgChart({
     const displayMode = nodeDisplayModes.get(employee.id) || defaultMode;
     const isCollapsed = displayMode === 'collapsed';
     
-    const isHighlighted = searchTerm && (
-      employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      employee.title.toLowerCase().includes(searchTerm.toLowerCase())
-    );
     const isCenterPerson = centerPersonId === employee.id;
     
     // Check if employee was moved in sandbox
@@ -530,7 +524,7 @@ export function OrgChart({
             level={level}
             hasChildren={hasChildren}
             displayMode={displayMode}
-            isHighlighted={isHighlighted}
+            isHighlighted={false}
             isCenterPerson={isCenterPerson}
             wasMoved={wasMoved}
             originalManagerId={originalEmployee?.managerId}
@@ -564,10 +558,7 @@ export function OrgChart({
                       level={level + 1}
                       hasChildren={false}
                       displayMode={'horizontal'}
-                      isHighlighted={searchTerm && (
-                        child.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        child.title.toLowerCase().includes(searchTerm.toLowerCase())
-                      )}
+                      isHighlighted={false}
                       isCenterPerson={centerPersonId === child.id}
                       wasMoved={movedEmployeeIds.has(child.id)}
                       originalManagerId={baseEmployees.find(e => e.id === child.id)?.managerId}
