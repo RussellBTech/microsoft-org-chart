@@ -9,6 +9,8 @@ import { SettingsModal } from './components/SettingsModal';
 import { ViewModeSelector } from './components/ViewModeSelector';
 import { QuickSaveModal } from './components/QuickSaveModal';
 import { ConfirmationDialog } from './components/ConfirmationDialog';
+import { ChangeSummaryPanel } from './components/ChangeSummaryPanel';
+import { CreatePositionModal } from './components/CreatePositionModal';
 import { useOrgStore } from './stores/orgStore';
 import { getStoredConfig, getConfigFromEnv } from './utils/azureConfig';
 import { AzureConfig } from './types/azureConfig';
@@ -83,7 +85,15 @@ function AppContent() {
     setSelectedEmployee,
     loadCompleteOrgData,
     searchEmployees,
-    changeView
+    changeView,
+    // Undo/Redo
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    // Open positions
+    createOpenPosition,
+    deleteOpenPosition
   } = useOrgStore();
   
   // UI state (not managed by store)
@@ -92,8 +102,18 @@ function AppContent() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showQuickSaveModal, setShowQuickSaveModal] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showChangeSummary, setShowChangeSummary] = useState(false);
+  const [showCreatePosition, setShowCreatePosition] = useState(false);
   const [pendingAction, setPendingAction] = useState<{ type: string; data?: any } | null>(null);
   const orgChartRef = useRef<HTMLDivElement>(null);
+
+  // Calculate change count for header badge
+  const changeCount = reassignedEmployeeIds.size +
+    employees.filter(e => {
+      const base = baseEmployees.find(b => b.id === e.id);
+      return base && base.title !== e.title;
+    }).length +
+    employees.filter(e => e.id.startsWith('open-') && !baseEmployees.find(b => b.id === e.id)).length;
 
   /**
    * Load initial data
@@ -177,6 +197,10 @@ function AppContent() {
 
   const handleSaveScenario = (name: string, description: string) => {
     saveScenario(name, description, user?.name || 'Current User');
+  };
+
+  const handleCreatePosition = (managerId: string, title: string, department: string) => {
+    createOpenPosition(managerId, title, department);
   };
 
   const handleLoadScenario = (scenario: any) => {
@@ -341,9 +365,15 @@ function AppContent() {
           <p className="text-gray-600 mb-4">
             Azure AD credentials are not configured. Please contact your administrator to set up the environment variables.
           </p>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 mb-6">
             Required: VITE_AZURE_CLIENT_ID, VITE_AZURE_TENANT_ID, VITE_AZURE_REDIRECT_URI
           </p>
+          <button
+            onClick={() => useOrgStore.getState().loadMockData()}
+            className="w-full bg-gray-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-700 transition-colors"
+          >
+            Continue with Demo Data
+          </button>
         </div>
       </div>
     );
@@ -400,6 +430,13 @@ function AppContent() {
         user={user}
         onLogin={handleLogin}
         onLogout={logout}
+        canUndo={canUndo()}
+        canRedo={canRedo()}
+        onUndo={undo}
+        onRedo={redo}
+        onShowChangeSummary={() => setShowChangeSummary(true)}
+        changeCount={changeCount}
+        onCreatePosition={() => setShowCreatePosition(true)}
       />
       
       {/* Sticky Navigation Container */}
@@ -552,6 +589,29 @@ function AppContent() {
           onConfirm={handleConfirmAction}
           onCancel={handleCancelAction}
           variant="warning"
+        />
+      )}
+
+      {showChangeSummary && (
+        <ChangeSummaryPanel
+          isOpen={showChangeSummary}
+          onClose={() => setShowChangeSummary(false)}
+          employees={employees}
+          baseEmployees={baseEmployees}
+          reassignedEmployeeIds={reassignedEmployeeIds}
+          onEmployeeClick={(employee) => {
+            setShowChangeSummary(false);
+            setSelectedEmployee(employee);
+          }}
+        />
+      )}
+
+      {showCreatePosition && (
+        <CreatePositionModal
+          isOpen={showCreatePosition}
+          onClose={() => setShowCreatePosition(false)}
+          onCreate={handleCreatePosition}
+          employees={employees}
         />
       )}
     </div>

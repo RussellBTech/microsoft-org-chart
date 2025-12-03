@@ -1,5 +1,5 @@
 import React from 'react';
-import { Settings, Download, RotateCcw, Save, Users, AlertTriangle, LogIn, LogOut } from 'lucide-react';
+import { Settings, Download, RotateCcw, Save, Users, AlertTriangle, LogIn, LogOut, Undo2, Redo2, GitCompare, UserPlus } from 'lucide-react';
 import type { Scenario } from '../data/mockData';
 
 interface HeaderProps {
@@ -17,6 +17,16 @@ interface HeaderProps {
   user?: { name?: string } | null;
   onLogin?: () => void;
   onLogout?: () => void;
+  // Undo/Redo props
+  canUndo?: boolean;
+  canRedo?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  // Change summary props
+  onShowChangeSummary?: () => void;
+  changeCount?: number;
+  // Create position props
+  onCreatePosition?: () => void;
 }
 
 export function Header({
@@ -32,7 +42,14 @@ export function Header({
   isAuthenticated = false,
   user = null,
   onLogin,
-  onLogout
+  onLogout,
+  canUndo = false,
+  canRedo = false,
+  onUndo,
+  onRedo,
+  onShowChangeSummary,
+  changeCount = 0,
+  onCreatePosition
 }: HeaderProps) {
   const canEdit = userRole === 'admin' || userRole === 'manager';
 
@@ -78,6 +95,51 @@ export function Header({
                 
                 {isInPlanningMode ? (
                   <>
+                    {/* Undo/Redo buttons */}
+                    <div className="flex items-center border-r border-gray-200 pr-2 mr-2">
+                      <button
+                        onClick={onUndo}
+                        disabled={!canUndo}
+                        title="Undo (Ctrl+Z)"
+                        className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <Undo2 className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={onRedo}
+                        disabled={!canRedo}
+                        title="Redo (Ctrl+Y)"
+                        className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <Redo2 className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    {/* Create Position button */}
+                    <button
+                      onClick={onCreatePosition}
+                      className="flex items-center space-x-2 px-3 py-2 text-green-700 hover:text-green-800 hover:bg-green-50 rounded-lg transition-colors"
+                      title="Create open position"
+                    >
+                      <UserPlus className="h-4 w-4" />
+                      <span>New Position</span>
+                    </button>
+
+                    {/* Change Summary button */}
+                    <button
+                      onClick={onShowChangeSummary}
+                      className="flex items-center space-x-2 px-3 py-2 text-blue-700 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="View change summary"
+                    >
+                      <GitCompare className="h-4 w-4" />
+                      <span>Changes</span>
+                      {changeCount > 0 && (
+                        <span className="ml-1 px-1.5 py-0.5 bg-blue-600 text-white text-xs rounded-full">
+                          {changeCount}
+                        </span>
+                      )}
+                    </button>
+
                     <button
                       onClick={onQuickSave}
                       className="flex items-center space-x-2 px-4 py-2 bg-green-100 text-green-700 hover:bg-green-200 rounded-lg transition-colors font-medium"

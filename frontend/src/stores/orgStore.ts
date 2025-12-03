@@ -23,6 +23,15 @@ interface ViewConfig {
   searchQuery?: string;
 }
 
+// Undo/Redo action types
+interface UndoableAction {
+  type: 'reassignment' | 'title_change' | 'color_change' | 'new_position' | 'delete_position';
+  employeeId: string;
+  previousState: Partial<Employee>;
+  newState: Partial<Employee>;
+  timestamp: number;
+}
+
 interface OrgState {
   // Employee data
   employees: Employee[];
@@ -38,6 +47,10 @@ interface OrgState {
   sandboxChanges: Map<string, Employee>; // Internal: tracks pending changes
   reassignedEmployeeIds: Set<string>;
   hasUnsavedChanges: boolean;
+
+  // Undo/Redo history
+  undoStack: UndoableAction[];
+  redoStack: UndoableAction[];
   
   // Scenarios
   scenarios: Scenario[];
@@ -73,6 +86,16 @@ interface OrgState {
   updateEmployee: (employee: Employee) => void;
   reassignEmployee: (employeeId: string, newManagerId: string | null) => void;
   resetToLive: () => void;
+
+  // Undo/Redo actions
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
+
+  // Open position actions
+  createOpenPosition: (managerId: string, title: string, department: string) => void;
+  deleteOpenPosition: (positionId: string) => void;
   
   // Scenario actions
   saveScenario: (name: string, description: string, createdBy: string) => void;
@@ -119,7 +142,9 @@ export const useOrgStore = create<OrgState>()(
       sandboxChanges: new Map(),
       reassignedEmployeeIds: new Set(),
       hasUnsavedChanges: false,
-      
+      undoStack: [],
+      redoStack: [],
+
       scenarios: [],
       currentScenario: null,
       isSavingScenario: false,
@@ -209,7 +234,7 @@ export const useOrgStore = create<OrgState>()(
       },
       
       reassignEmployee: (employeeId, newManagerId) => {
-        const { isSandboxMode, employees, baseEmployees, sandboxChanges, reassignedEmployeeIds } = get();
+        const { isSandboxMode, employees, baseEmployees, sandboxChanges, reassignedEmployeeIds, undoStack } = get();
         if (!isSandboxMode) return;
 
         const currentEmployee = employees.find(emp => emp.id === employeeId);
@@ -225,6 +250,15 @@ export const useOrgStore = create<OrgState>()(
           originalEmployee = { ...currentEmployee };
           updatedBaseEmployees = [...baseEmployees, originalEmployee];
         }
+
+        // Create undo action before making changes
+        const undoAction: UndoableAction = {
+          type: 'reassignment',
+          employeeId,
+          previousState: { managerId: currentEmployee.managerId },
+          newState: { managerId: newManagerId },
+          timestamp: Date.now()
+        };
 
         const updatedEmployee = { ...currentEmployee, managerId: newManagerId };
         const newSandboxChanges = new Map(sandboxChanges);
@@ -250,7 +284,9 @@ export const useOrgStore = create<OrgState>()(
           baseEmployees: updatedBaseEmployees,
           sandboxChanges: newSandboxChanges,
           reassignedEmployeeIds: newReassignedIds,
-          hasUnsavedChanges: true
+          hasUnsavedChanges: true,
+          undoStack: [...undoStack, undoAction],
+          redoStack: [] // Clear redo stack on new action
         });
       },
       
@@ -262,10 +298,161 @@ export const useOrgStore = create<OrgState>()(
           reassignedEmployeeIds: new Set(),
           hasUnsavedChanges: false,
           currentScenario: null,
-          isSandboxMode: false
+          isSandboxMode: false,
+          undoStack: [],
+          redoStack: []
         });
       },
-      
+
+      // Undo/Redo actions
+      canUndo: () => get().undoStack.length > 0,
+      canRedo: () => get().redoStack.length > 0,
+
+      undo: () => {
+        const { undoStack, redoStack, employees, baseEmployees, reassignedEmployeeIds } = get();
+        if (undoStack.length === 0) return;
+
+        const lastAction = undoStack[undoStack.length - 1];
+        const newUndoStack = undoStack.slice(0, -1);
+
+        // Apply the reverse of the action
+        const employee = employees.find(e => e.id === lastAction.employeeId);
+        if (!employee) return;
+
+        let newEmployees = employees;
+        let newReassignedIds = new Set(reassignedEmployeeIds);
+
+        if (lastAction.type === 'reassignment') {
+          const previousManagerId = lastAction.previousState.managerId as string | undefined;
+          const originalEmployee = baseEmployees.find(e => e.id === lastAction.employeeId);
+
+          newEmployees = employees.map(emp =>
+            emp.id === lastAction.employeeId
+              ? { ...emp, managerId: previousManagerId }
+              : emp
+          );
+
+          // Update reassigned tracking
+          if (originalEmployee && originalEmployee.managerId !== previousManagerId) {
+            newReassignedIds.add(lastAction.employeeId);
+          } else {
+            newReassignedIds.delete(lastAction.employeeId);
+          }
+        } else if (lastAction.type === 'new_position') {
+          // Remove the created position
+          newEmployees = employees.filter(emp => emp.id !== lastAction.employeeId);
+        } else if (lastAction.type === 'delete_position') {
+          // Restore the deleted position
+          const restoredEmployee = lastAction.previousState as Employee;
+          newEmployees = [...employees, restoredEmployee];
+        }
+
+        set({
+          employees: newEmployees,
+          reassignedEmployeeIds: newReassignedIds,
+          undoStack: newUndoStack,
+          redoStack: [...redoStack, lastAction],
+          hasUnsavedChanges: newUndoStack.length > 0 || newEmployees.length !== baseEmployees.length
+        });
+      },
+
+      redo: () => {
+        const { undoStack, redoStack, employees, baseEmployees, reassignedEmployeeIds } = get();
+        if (redoStack.length === 0) return;
+
+        const lastAction = redoStack[redoStack.length - 1];
+        const newRedoStack = redoStack.slice(0, -1);
+
+        let newEmployees = employees;
+        let newReassignedIds = new Set(reassignedEmployeeIds);
+
+        if (lastAction.type === 'reassignment') {
+          const newManagerId = lastAction.newState.managerId as string | undefined;
+          const originalEmployee = baseEmployees.find(e => e.id === lastAction.employeeId);
+
+          newEmployees = employees.map(emp =>
+            emp.id === lastAction.employeeId
+              ? { ...emp, managerId: newManagerId }
+              : emp
+          );
+
+          // Update reassigned tracking
+          if (originalEmployee && originalEmployee.managerId !== newManagerId) {
+            newReassignedIds.add(lastAction.employeeId);
+          } else {
+            newReassignedIds.delete(lastAction.employeeId);
+          }
+        } else if (lastAction.type === 'new_position') {
+          // Re-create the position
+          const newPosition = lastAction.newState as Employee;
+          newEmployees = [...employees, newPosition];
+        } else if (lastAction.type === 'delete_position') {
+          // Re-delete the position
+          newEmployees = employees.filter(emp => emp.id !== lastAction.employeeId);
+        }
+
+        set({
+          employees: newEmployees,
+          reassignedEmployeeIds: newReassignedIds,
+          undoStack: [...undoStack, lastAction],
+          redoStack: newRedoStack,
+          hasUnsavedChanges: true
+        });
+      },
+
+      // Open position actions
+      createOpenPosition: (managerId, title, department) => {
+        const { isSandboxMode, employees, undoStack } = get();
+        if (!isSandboxMode) return;
+
+        const newPosition: Employee = {
+          id: `open-${Date.now()}`,
+          name: 'Open Position',
+          title,
+          department,
+          email: '',
+          managerId
+        };
+
+        const undoAction: UndoableAction = {
+          type: 'new_position',
+          employeeId: newPosition.id,
+          previousState: {},
+          newState: newPosition,
+          timestamp: Date.now()
+        };
+
+        set({
+          employees: [...employees, newPosition],
+          undoStack: [...undoStack, undoAction],
+          redoStack: [],
+          hasUnsavedChanges: true
+        });
+      },
+
+      deleteOpenPosition: (positionId) => {
+        const { isSandboxMode, employees, undoStack } = get();
+        if (!isSandboxMode) return;
+
+        const position = employees.find(e => e.id === positionId);
+        if (!position || !positionId.startsWith('open-')) return;
+
+        const undoAction: UndoableAction = {
+          type: 'delete_position',
+          employeeId: positionId,
+          previousState: position,
+          newState: {},
+          timestamp: Date.now()
+        };
+
+        set({
+          employees: employees.filter(e => e.id !== positionId),
+          undoStack: [...undoStack, undoAction],
+          redoStack: [],
+          hasUnsavedChanges: true
+        });
+      },
+
       // Scenario actions
       saveScenario: (name, description, createdBy) => {
         const { scenarios, employees, reassignedEmployeeIds, isSavingScenario } = get();
